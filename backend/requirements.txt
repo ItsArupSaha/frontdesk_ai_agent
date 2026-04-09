@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+langchain-openai
+langgraph
+openai
+pydantic
+pydantic-settings
+supabase
+python-dotenv
+structlog
+httpx
+pytest
+pytest-asyncio
+respx
