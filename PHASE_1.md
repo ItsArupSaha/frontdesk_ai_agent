@@ -2,6 +2,9 @@
 # Estimated time: 2 weeks
 # Status: NOT STARTED
 
+# Important: 
+We are using OpenAI (gpt-4o) not Anthropic Claude as the LLM. Use langchain-openai and ChatOpenAI everywhere. The API key is OPENAI_API_KEY in .env.
+
 ## Goal
 A live FastAPI server that receives Vapi webhooks, runs a LangGraph
 conversation, uses Claude to respond, and correctly detects + escalates
@@ -21,9 +24,9 @@ By the end of Phase 1, a real phone call should work end-to-end:
 ```
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
-langchain-anthropic==0.1.15
+openai==1.30.0
+langchain-openai==0.1.7
 langgraph==0.1.5
-anthropic==0.28.0
 pydantic==2.7.1
 pydantic-settings==2.2.1
 supabase==2.4.6
@@ -38,7 +41,7 @@ respx==0.21.1
 ### 2. backend/.env.example
 All environment variables needed for Phase 1:
 ```
-ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
 VAPI_API_KEY=
 VAPI_WEBHOOK_SECRET=
 SUPABASE_URL=
@@ -53,7 +56,7 @@ BASE_URL=http://localhost:8000
 - Use pydantic-settings BaseSettings class
 - Load all env vars with type validation
 - Expose a single `settings` singleton imported everywhere
-- Include: anthropic_api_key, vapi_api_key, vapi_webhook_secret,
+- Include: OPENAI_API_KEY, vapi_api_key, vapi_webhook_secret,
   supabase_url, supabase_service_key, app_env, app_secret_key, base_url
 - Fail loudly at startup if required vars are missing
 

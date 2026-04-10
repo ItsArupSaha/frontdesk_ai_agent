@@ -5,7 +5,7 @@
 2. cd ai-frontdesk-agent
 3. Copy CLAUDE.md into this folder
 4. Copy PHASE_1.md into this folder
-5. npm install -g @anthropic/claude-code
+5. npm install -g @anthropic-ai/claude-code
 6. claude
 
 ## Starting Phase 1
@@ -49,6 +49,21 @@ Your job:
 Do not rebuild Phase 1-X files unless they need updating 
 for Phase X to work.
 ---
+
+## test the validity of previous phases done by AI
+
+Read AGENTS.md and PHASE_1.md fully.
+
+I built Phase 1 completely. Audit the entire codebase against the spec:
+
+1. Does every file in PHASE_1.md exist and do what it's supposed to?
+2. Are there any security issues (unvalidated webhooks, unencrypted data, bare excepts)?
+3. Are there gaps or shortcuts that will cause problems in later phases?
+4. Run all tests: pytest tests/ -v — fix any failures
+5. Give me a clear report: what matches spec, what's missing, what needs fixing
+
+Do not rewrite things that work. Only fix real problems.
+
 
 ## If something breaks mid-phase
 Paste this:

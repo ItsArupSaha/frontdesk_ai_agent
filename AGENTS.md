@@ -69,7 +69,7 @@ connection, and isolated data.
 | Backend language | Python 3.11+ | LangGraph is Python-native |
 | Web framework | FastAPI | Async, fast, auto-docs |
 | Agent framework | LangGraph | State machine for conversation flow |
-| LLM | Codex Codex-sonnet-4-20250514 via Anthropic SDK | Best tool-calling |
+| LLM | gpt-4o-mini via OpenAI SDK | Strong tool-calling, using existing credits |
 | Voice | Vapi.ai | Handles all telephony |
 | SMS | Twilio Python SDK | Industry standard, direct API |
 | Database | PostgreSQL via Supabase | Managed, free tier, realtime |
@@ -226,7 +226,7 @@ GREETING
 ### Backend .env (Arup owns all of these)
 ```
 # Anthropic
-ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
 
 # Vapi
 VAPI_API_KEY=
@@ -342,5 +342,5 @@ ngrok http 8000
 ---
 
 ## Current status
-Phase 1 — not started.
-Next action: build backend/ scaffold and Phase 1 implementation.
+Phase 1 — Completed.
+Next action: Phase 2 implementation.

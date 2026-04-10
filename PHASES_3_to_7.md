@@ -80,7 +80,7 @@ create index on knowledge_chunks(client_id);
 ### backend/utils/summarizer.py
 
 `async def generate_call_summary(transcript: list[dict], client_config: dict) -> str`
-- Use Claude to generate a structured summary from the transcript
+- Use OpenAI gpt-4o-mini to generate a structured summary from the transcript
 - Prompt: "Summarize this call in 3-4 sentences. Include:
   what the customer needed, what was resolved or booked, any follow-up needed.
   Be factual and concise."

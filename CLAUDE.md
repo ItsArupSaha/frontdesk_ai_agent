@@ -226,7 +226,7 @@ GREETING
 ### Backend .env (Arup owns all of these)
 ```
 # Anthropic
-ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
 
 # Vapi
 VAPI_API_KEY=
