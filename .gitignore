@@ -21,3 +21,6 @@ Thumbs.db
 # IDEs
 .vscode/
 .idea/
+
+# Claude Code local settings (may contain approved command history with secrets)
+.claude/settings.local.json
