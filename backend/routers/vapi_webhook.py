@@ -1,185 +1,275 @@
-from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List
-import hmac
+import asyncio
 import hashlib
+import hmac
+import json
+
+from fastapi import APIRouter, HTTPException, Request
+from langchain_core.messages import AIMessage, HumanMessage
+from pydantic import BaseModel, ValidationError
+from typing import Optional, List
+
 from backend.config import settings
 from backend.utils.logging import get_logger
 from backend.agents.graph import compiled_graph
-from langchain_core.messages import HumanMessage, AIMessage
 from backend.db.client import get_supabase
-import asyncio
 
 logger = get_logger(__name__)
 router = APIRouter()
 
+
+# ---------------------------------------------------------------------------
+# Pydantic models for incoming Vapi webhook payload
+# ---------------------------------------------------------------------------
+
 class PhoneNumber(BaseModel):
     number: str
+
 
 class Call(BaseModel):
     id: str
     phoneNumber: Optional[PhoneNumber] = None
 
+
 class Message(BaseModel):
     role: str
     content: str
-    
+
+
 class VapiMessageContent(BaseModel):
-    type: str # assistant-request, status-update
+    type: str  # assistant-request | status-update
     call: Optional[Call] = None
     conversation: Optional[List[Message]] = None
     status: Optional[str] = None
 
+
 class VapiWebhookPayload(BaseModel):
     message: VapiMessageContent
 
-def verify_vapi_secret(request: Request) -> bool:
+
+# ---------------------------------------------------------------------------
+# Signature validation — HMAC-SHA256 (primary) + Bearer token (fallback)
+# ---------------------------------------------------------------------------
+
+def verify_vapi_secret(request: Request, raw_body: bytes) -> bool:
+    """Verify Vapi webhook authenticity.
+
+    Checks the ``x-vapi-signature`` header using HMAC-SHA256 first.
+    Falls back to an ``Authorization: Bearer <secret>`` check so that
+    existing live Vapi integrations continue to work without change.
+
+    Returns True if the request is authentic, False otherwise.
+    """
+    secret = settings.vapi_webhook_secret
+
+    # Primary: HMAC-SHA256 via x-vapi-signature header
+    sig_header = request.headers.get("x-vapi-signature")
+    if sig_header:
+        expected = hmac.new(
+            secret.encode("utf-8"),
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(sig_header, expected)
+
+    # Fallback: simple Bearer token (Vapi's current webhook auth method)
     auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        return False
-    expected = f"Bearer {settings.vapi_webhook_secret}"
-    return hmac.compare_digest(auth_header.encode("utf-8"), expected.encode("utf-8"))
+    if auth_header:
+        expected_bearer = f"Bearer {secret}"
+        return hmac.compare_digest(
+            auth_header.encode("utf-8"),
+            expected_bearer.encode("utf-8"),
+        )
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Webhook handler
+# ---------------------------------------------------------------------------
 
 @router.post("/vapi")
-async def vapi_webhook(request: Request, payload: VapiWebhookPayload):
-    if not verify_vapi_secret(request):
+async def vapi_webhook(request: Request) -> dict:
+    """Handle all inbound Vapi webhook events.
+
+    Responds within 4 seconds to stay under Vapi's 5-second timeout.
+    On any unhandled exception the handler returns a safe fallback response
+    (200 + transfer-call) so the caller is never left in silence.
+    """
+    raw_body = await request.body()
+
+    if not verify_vapi_secret(request, raw_body):
         raise HTTPException(status_code=403, detail="Invalid signature")
 
     try:
+        payload_dict = json.loads(raw_body)
+        payload = VapiWebhookPayload(**payload_dict)
+    except (json.JSONDecodeError, ValidationError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    # Pre-initialize for use in exception handlers before try block populates them
+    call_id: str = "unknown"
+    emergency_number: str = "+15550000000"
+
+    try:
         msg_type = payload.message.type
-        
+
         if msg_type == "status-update" and payload.message.status == "ended":
-            # finalize call log logic would go here
+            # TODO Phase 2: finalize call_log, generate summary
             return {"status": "ok"}
-            
-        if msg_type == "assistant-request":
-            call_id = payload.message.call.id if payload.message.call else "unknown"
-            phone_num = payload.message.call.phoneNumber.number if payload.message.call and payload.message.call.phoneNumber else None
-            
-            supabase = get_supabase()
-            
-            # 1. Fetch Client Config
-            client_config = None
-            try:
-                # We seed 'Test Plumbing Co' in 001_initial.sql for testing
-                client_res = supabase.table("clients").select("*").eq("business_name", "Test Plumbing Co").limit(1).execute()
-                if client_res.data:
-                    row = client_res.data[0]
-                    client_config = {
-                        "id": str(row["id"]),
-                        "business_name": row["business_name"],
-                        "emergency_phone_number": row["emergency_phone_number"],
-                        "working_hours": row["working_hours"],
-                        "services_offered": row["services_offered"],
-                        "service_area_description": row["service_area_description"],
-                        "is_active": row["is_active"]
-                    }
-            except Exception as e:
-                logger.warning(f"DB client lookup failed: {e}")
 
-            if not client_config:
+        if msg_type != "assistant-request":
+            return {"status": "ignored"}
+
+        call_id = payload.message.call.id if payload.message.call else "unknown"
+        phone_num = (
+            payload.message.call.phoneNumber.number
+            if payload.message.call and payload.message.call.phoneNumber
+            else None
+        )
+
+        supabase = get_supabase()
+
+        # 1. Fetch client config from DB; fall back to test config on failure
+        client_config: dict | None = None
+        try:
+            client_res = (
+                supabase.table("clients")
+                .select("*")
+                .eq("business_name", "Test Plumbing Co")
+                .limit(1)
+                .execute()
+            )
+            if client_res.data:
+                row = client_res.data[0]
                 client_config = {
-                    "id": "123",
-                    "business_name": "Test Plumbing Co",
-                    "emergency_phone_number": "+15550000000",
-                    "working_hours": {},
-                    "services_offered": ["plumbing"],
-                    "service_area_description": "New York",
-                    "is_active": True
+                    "id": str(row["id"]),
+                    "business_name": row["business_name"],
+                    "emergency_phone_number": row["emergency_phone_number"],
+                    "working_hours": row["working_hours"],
+                    "services_offered": row["services_offered"],
+                    "service_area_description": row["service_area_description"],
+                    "is_active": row["is_active"],
                 }
+        except Exception as exc:
+            logger.warning("DB client lookup failed", error=str(exc))
 
-            # 2. Fetch Conversation State
-            state_data = {
-                "current_node": "greeting",
-                "is_emergency": False
+        if not client_config:
+            client_config = {
+                "id": "123",
+                "business_name": "Test Plumbing Co",
+                "emergency_phone_number": "+15550000000",
+                "working_hours": {},
+                "services_offered": ["plumbing"],
+                "service_area_description": "New York",
+                "is_active": True,
             }
-            try:
-                state_res = supabase.table("conversation_state").select("*").eq("call_id", call_id).limit(1).execute()
-                if state_res.data:
-                    row = state_res.data[0]
-                    state_data["current_node"] = row.get("current_node", "greeting")
-                    state_data["is_emergency"] = row.get("is_emergency", False)
-            except Exception as e:
-                logger.warning(f"State lookup failed: {e}")
-            
-            messages = []
-            if payload.message.conversation:
-                for m in payload.message.conversation:
-                    if m.role == "user":
-                        messages.append(HumanMessage(content=m.content))
-                    elif m.role == "assistant":
-                        messages.append(AIMessage(content=m.content))
-            
-            if not messages:
-                messages.append(HumanMessage(content="Hello"))
 
-            state = {
-                "messages": messages,
-                "client_id": client_config["id"],
-                "call_id": call_id,
-                "current_node": state_data["current_node"],
-                "caller_name": None,
-                "caller_phone": phone_num,
-                "problem_description": None,
-                "is_emergency": state_data["is_emergency"],
-                "service_area_confirmed": False,
-                "client_config": client_config
-            }
-            
-            try:
-                result_state = await asyncio.wait_for(compiled_graph.ainvoke(state), timeout=4.0)
-            except asyncio.TimeoutError:
-                logger.error("Graph execution timed out")
-                raise HTTPException(status_code=504, detail="Graph timeout")
-            
-            # 3. Save Updated Conversation State
-            updated_state_data = {
-                "call_id": call_id,
-                "client_id": client_config["id"],
-                "current_node": result_state.get("current_node", state_data["current_node"]),
-                "is_emergency": result_state.get("is_emergency", False),
-                "messages": [{"role": "assistant" if isinstance(m, AIMessage) else "user", "content": str(m.content)} for m in result_state["messages"]]
-            }
-            try:
-                supabase.table("conversation_state").upsert(updated_state_data).execute()
-            except Exception as e:
-                logger.error(f"Failed to save state: {e}")
-            
-            final_message = result_state["messages"][-1]
-            
-            if isinstance(final_message, AIMessage) and final_message.tool_calls:
-                for tc in final_message.tool_calls:
-                    if tc["name"] == "escalate_call":
-                        return {
-                            "response": {
-                                "action": "transfer-call",
-                                "phoneNumber": client_config["emergency_phone_number"],
-                                "message": "Connecting you to our emergency technician now."
-                            }
+        emergency_number = client_config.get("emergency_phone_number", "+15550000000")
+
+        # 2. Fetch or initialise conversation state from DB
+        state_data = {"current_node": "greeting", "is_emergency": False}
+        try:
+            state_res = (
+                supabase.table("conversation_state")
+                .select("*")
+                .eq("call_id", call_id)
+                .limit(1)
+                .execute()
+            )
+            if state_res.data:
+                row = state_res.data[0]
+                state_data["current_node"] = row.get("current_node", "greeting")
+                state_data["is_emergency"] = row.get("is_emergency", False)
+        except Exception as exc:
+            logger.warning("State lookup failed", error=str(exc))
+
+        messages = []
+        if payload.message.conversation:
+            for m in payload.message.conversation:
+                if m.role == "user":
+                    messages.append(HumanMessage(content=m.content))
+                elif m.role == "assistant":
+                    messages.append(AIMessage(content=m.content))
+
+        if not messages:
+            messages.append(HumanMessage(content="Hello"))
+
+        state = {
+            "messages": messages,
+            "client_id": client_config["id"],
+            "call_id": call_id,
+            "current_node": state_data["current_node"],
+            "caller_name": None,
+            "caller_phone": phone_num,
+            "problem_description": None,
+            "is_emergency": state_data["is_emergency"],
+            "service_area_confirmed": False,
+            "client_config": client_config,
+        }
+
+        # 3. Run LangGraph — enforce 4-second timeout (Vapi times out at 5s)
+        result_state = await asyncio.wait_for(
+            compiled_graph.ainvoke(state), timeout=4.0
+        )
+
+        # 4. Persist updated conversation state
+        updated_state_data = {
+            "call_id": call_id,
+            "client_id": client_config["id"],
+            "current_node": result_state.get("current_node", state_data["current_node"]),
+            "is_emergency": result_state.get("is_emergency", False),
+            "messages": [
+                {
+                    "role": "assistant" if isinstance(m, AIMessage) else "user",
+                    "content": str(m.content),
+                }
+                for m in result_state["messages"]
+            ],
+        }
+        try:
+            supabase.table("conversation_state").upsert(updated_state_data).execute()
+        except Exception as exc:
+            logger.error("Failed to save conversation state", error=str(exc))
+
+        # 5. Translate graph output to Vapi response
+        final_message = result_state["messages"][-1]
+
+        if isinstance(final_message, AIMessage) and final_message.tool_calls:
+            for tc in final_message.tool_calls:
+                if tc["name"] == "escalate_call":
+                    return {
+                        "response": {
+                            "action": "transfer-call",
+                            "phoneNumber": emergency_number,
+                            "message": "Connecting you to our emergency technician now.",
                         }
-            
-            return {
-                "response": {
-                    "message": final_message.content if isinstance(final_message, AIMessage) else str(final_message)
-                }
-            }
-            
-        return {"status": "ignored"}
-    except asyncio.TimeoutError:
-        logger.error("Webhook timeout", exc_info=True)
+                    }
+
         return {
             "response": {
-                "action": "transfer-call",
-                "phoneNumber": "+15550000000", 
-                "message": "I'm having a technical issue. Let me connect you with someone directly."
+                "message": (
+                    final_message.content
+                    if isinstance(final_message, AIMessage)
+                    else str(final_message)
+                )
             }
         }
-    except Exception as e:
-        logger.error("Webhook error", exc_info=True)
+
+    except asyncio.TimeoutError:
+        logger.error("Graph execution timed out", call_id=call_id)
         return {
             "response": {
                 "action": "transfer-call",
-                "phoneNumber": "+15550000000", # default emergency
-                "message": "I'm having a technical issue. Let me connect you with someone directly."
+                "phoneNumber": emergency_number,
+                "message": "I'm having a technical issue. Let me connect you with someone directly.",
+            }
+        }
+    except Exception:
+        logger.error("Unhandled webhook error", exc_info=True)
+        return {
+            "response": {
+                "action": "transfer-call",
+                "phoneNumber": emergency_number,
+                "message": "I'm having a technical issue. Let me connect you with someone directly.",
             }
         }

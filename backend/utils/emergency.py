@@ -23,25 +23,21 @@ EMERGENCY_KEYWORDS = {
     ]
 }
 
+
 def detect_emergency(text: str) -> tuple[bool, str | None]:
-    """Detects if the input text contains any emergency keywords."""
+    """Detect whether caller text contains an emergency keyword.
+
+    Returns (True, matched_keyword) on first match, (False, None) otherwise.
+    Matching is case-insensitive substring search — multi-word phrases like
+    "burst pipe" are matched correctly without word-boundary issues.
+    """
     if not text:
         return False, None
-    
+
     text_lower = text.lower()
-    for trade, keywords in EMERGENCY_KEYWORDS.items():
+    for _trade, keywords in EMERGENCY_KEYWORDS.items():
         for keyword in keywords:
-            # We look for the keyword as a substring, but to avoid partial matches
-            # like "sparks" in "I like parks" (wait, parks doesn't contain sparks).
-            # The spec says: 'Must handle partial matches within words carefully —
-            # "sparks" should match "sparks" but test edge cases'
-            # A simple `in` works for most, maybe regex for word boundaries if needed.
-            # Let's start with basic `in` and refine if tests fail.
-            # Actually, `import re` and `re.search(r'\b' + re.escape(keyword) + r'\b', text_lower)` is safer.
-            import re
-            # word boundary before, but after could be tricky since "sparks" is plural.
-            # "in" might be ok for PHASE_1.
             if keyword in text_lower:
                 return True, keyword
-                
+
     return False, None

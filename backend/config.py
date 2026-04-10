@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     vapi_api_key: str
     vapi_webhook_secret: str
     supabase_url: str
-    supabase_secret_key: str
+    supabase_service_key: str
     app_env: str = "development"
     app_secret_key: str = "change-this-in-production"
     base_url: str = "http://localhost:8000"
