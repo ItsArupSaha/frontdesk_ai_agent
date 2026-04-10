@@ -300,22 +300,6 @@ as potentially failing and handle it gracefully:
 
 ---
 
-## Phase build order
-
-| Phase | Weeks | What gets built |
-|---|---|---|
-| 1 | 1–2 | Vapi webhook + FastAPI + LangGraph skeleton + emergency detection |
-| 2 | 3 | Google Calendar booking flow + lead qualification |
-| 3 | 4 | RAG knowledge base (pgvector) + call summaries |
-| 4 | 5 | Jobber + Housecall Pro direct API integrations |
-| 5 | 6 | SMS automation flows (reminders, review requests, missed-call recovery) |
-| 6 | 7 | React dashboard (call logs, bookings, analytics, settings) |
-| 7 | 8 | Multi-client management panel + client onboarding form + polish |
-
-Current phase: 1
-
----
-
 ## Known constraints and decisions
 
 - NO Zapier or any workflow middleware — all integrations are direct API calls in Python
@@ -327,20 +311,7 @@ Current phase: 1
 
 ---
 
-## How to run locally
-
-```bash
-cd backend
-cp .env.example .env
-# fill in your API keys
-uv pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-# expose to internet for Vapi webhooks:
-ngrok http 8000
-```
-
----
-
 ## Current status
 Phase 1 — Completed
-Next action: Phase 2 implementation.
+Phase 2 — Completed
+Next action: Phase 3 implementation.

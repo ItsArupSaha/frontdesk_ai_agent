@@ -1,7 +1,4 @@
 # Phase 2 — Google Calendar Booking + Lead Qualification + SMS Confirmation
-# Estimated time: 1 week
-# Depends on: Phase 1 complete and ALL tests passing
-# Status: NOT STARTED
 
 ## Goal
 The agent completes the full booking loop:

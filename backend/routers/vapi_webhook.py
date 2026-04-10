@@ -40,6 +40,7 @@ class VapiMessageContent(BaseModel):
     call: Optional[Call] = None
     conversation: Optional[List[Message]] = None
     status: Optional[str] = None
+    durationSeconds: Optional[float] = None
 
 
 class VapiWebhookPayload(BaseModel):
@@ -113,8 +114,55 @@ async def vapi_webhook(request: Request) -> dict:
     try:
         msg_type = payload.message.type
 
+        # ------------------------------------------------------------------
+        # Call ended — send missed-call recovery SMS if caller didn't book
+        # ------------------------------------------------------------------
         if msg_type == "status-update" and payload.message.status == "ended":
-            # TODO Phase 2: finalize call_log, generate summary
+            call_id = payload.message.call.id if payload.message.call else "unknown"
+            phone_num = (
+                payload.message.call.phoneNumber.number
+                if payload.message.call and payload.message.call.phoneNumber
+                else None
+            )
+            duration_seconds = payload.message.durationSeconds or 0
+
+            if phone_num and duration_seconds > 15:
+                supabase = get_supabase()
+                try:
+                    # Check if this call resulted in a booking
+                    log_res = (
+                        supabase.table("call_logs")
+                        .select("was_booked, client_id")
+                        .eq("call_id", call_id)
+                        .limit(1)
+                        .execute()
+                    )
+                    if log_res.data:
+                        row = log_res.data[0]
+                        was_booked = row.get("was_booked", False)
+                        client_id_for_sms = str(row.get("client_id", ""))
+                        if not was_booked:
+                            # Fetch business name
+                            client_res = (
+                                supabase.table("clients")
+                                .select("business_name")
+                                .eq("id", client_id_for_sms)
+                                .limit(1)
+                                .execute()
+                            )
+                            business_name = "our team"
+                            if client_res.data:
+                                business_name = client_res.data[0].get("business_name", "our team")
+
+                            from backend.services import sms_service
+                            sms_service.send_missed_call_recovery(
+                                caller_number=phone_num,
+                                business_name=business_name,
+                                client_id=client_id_for_sms,
+                            )
+                except Exception as exc:
+                    logger.error("Missed-call recovery failed", call_id=call_id, error=str(exc))
+
             return {"status": "ok"}
 
         if msg_type != "assistant-request":
@@ -167,7 +215,7 @@ async def vapi_webhook(request: Request) -> dict:
         emergency_number = client_config.get("emergency_phone_number", "+15550000000")
 
         # 2. Fetch or initialise conversation state from DB
-        state_data = {"current_node": "greeting", "is_emergency": False}
+        state_data: dict = {"current_node": "greeting", "is_emergency": False}
         try:
             state_res = (
                 supabase.table("conversation_state")
@@ -178,8 +226,16 @@ async def vapi_webhook(request: Request) -> dict:
             )
             if state_res.data:
                 row = state_res.data[0]
-                state_data["current_node"] = row.get("current_node", "greeting")
-                state_data["is_emergency"] = row.get("is_emergency", False)
+                state_data = {
+                    "current_node": row.get("current_node", "greeting"),
+                    "is_emergency": row.get("is_emergency", False),
+                    "caller_name": row.get("caller_name"),
+                    "caller_phone": row.get("caller_phone"),
+                    "caller_address": row.get("caller_address"),
+                    "problem_description": row.get("problem_description"),
+                    "collection_complete": row.get("collection_complete", False),
+                    "booking_complete": row.get("booking_complete", False),
+                }
         except Exception as exc:
             logger.warning("State lookup failed", error=str(exc))
 
@@ -198,12 +254,17 @@ async def vapi_webhook(request: Request) -> dict:
             "messages": messages,
             "client_id": client_config["id"],
             "call_id": call_id,
-            "current_node": state_data["current_node"],
-            "caller_name": None,
-            "caller_phone": phone_num,
-            "problem_description": None,
-            "is_emergency": state_data["is_emergency"],
+            "current_node": state_data.get("current_node", "greeting"),
+            "caller_name": state_data.get("caller_name"),
+            "caller_phone": state_data.get("caller_phone") or phone_num,
+            "caller_address": state_data.get("caller_address"),
+            "problem_description": state_data.get("problem_description"),
+            "is_emergency": state_data.get("is_emergency", False),
             "service_area_confirmed": False,
+            "collection_complete": state_data.get("collection_complete", False),
+            "available_slots": [],
+            "chosen_slot": None,
+            "booking_complete": state_data.get("booking_complete", False),
             "client_config": client_config,
         }
 
@@ -216,8 +277,14 @@ async def vapi_webhook(request: Request) -> dict:
         updated_state_data = {
             "call_id": call_id,
             "client_id": client_config["id"],
-            "current_node": result_state.get("current_node", state_data["current_node"]),
+            "current_node": result_state.get("current_node", state_data.get("current_node", "greeting")),
             "is_emergency": result_state.get("is_emergency", False),
+            "caller_name": result_state.get("caller_name"),
+            "caller_phone": result_state.get("caller_phone"),
+            "caller_address": result_state.get("caller_address"),
+            "problem_description": result_state.get("problem_description"),
+            "collection_complete": result_state.get("collection_complete", False),
+            "booking_complete": result_state.get("booking_complete", False),
             "messages": [
                 {
                     "role": "assistant" if isinstance(m, AIMessage) else "user",

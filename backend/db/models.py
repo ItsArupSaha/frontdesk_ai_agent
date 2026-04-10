@@ -1,5 +1,7 @@
-from pydantic import BaseModel
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
+
 
 class ClientConfig(BaseModel):
     id: str
@@ -9,6 +11,7 @@ class ClientConfig(BaseModel):
     services_offered: list[str]
     service_area_description: str
     is_active: bool
+
 
 class CallLog(BaseModel):
     id: str | None = None
@@ -23,12 +26,35 @@ class CallLog(BaseModel):
     transcript: list[dict] = []
     status: str = "in_progress"  # in_progress | completed | failed
 
+
 class ConversationState(BaseModel):
     client_id: str
     call_id: str
     current_node: str = "GREETING"
     caller_name: str | None = None
     caller_phone: str | None = None
+    caller_address: str | None = None
     problem_description: str | None = None
     is_emergency: bool = False
+    collection_complete: bool = False
+    booking_complete: bool = False
     messages: list[dict] = []
+
+
+class Booking(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str | None = None
+    client_id: str
+    call_id: str | None = None
+    caller_name: str
+    caller_phone: str
+    caller_address: str
+    problem_description: str
+    appointment_start: datetime
+    appointment_end: datetime
+    google_event_id: str | None = None
+    confirmation_sms_sent: bool = False
+    status: str = "confirmed"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

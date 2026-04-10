@@ -11,7 +11,9 @@ def mock_state():
             "business_name": "Test",
             "emergency_phone_number": "123"
         },
-        "is_emergency": False
+        "is_emergency": False,
+        "collection_complete": False,
+        "booking_complete": False,
     }
 
 @pytest.mark.asyncio
@@ -20,7 +22,7 @@ async def test_greeting_node_returns_response(mock_get_llm, mock_state):
     mock_llm = AsyncMock()
     mock_llm.ainvoke.return_value = AIMessage(content="Hi there")
     mock_get_llm.return_value = mock_llm
-    
+
     res = await greeting_node(mock_state)
     assert res["messages"][0].content == "Hi there"
 
@@ -30,7 +32,7 @@ async def test_qualify_node_detects_emergency(mock_get_llm):
     state = {
         "messages": [HumanMessage(content="I have a burst pipe")],
         "client_config": {},
-        "is_emergency": False
+        "is_emergency": False,
     }
     res = await qualify_node(state)
     assert res["is_emergency"] is True
@@ -41,12 +43,12 @@ async def test_qualify_node_asks_questions(mock_get_llm):
     state = {
         "messages": [HumanMessage(content="I need a new sink")],
         "client_config": {},
-        "is_emergency": False
+        "is_emergency": False,
     }
     mock_llm = AsyncMock()
     mock_llm.ainvoke.return_value = AIMessage(content="What is your address?")
     mock_get_llm.return_value = mock_llm
-    
+
     res = await qualify_node(state)
     assert "messages" in res
     assert res["messages"][0].content == "What is your address?"
@@ -57,17 +59,35 @@ async def test_emergency_node_calls_escalate_tool(mock_get_llm):
     state = {
         "messages": [HumanMessage(content="burst pipe")],
         "client_config": {},
-        "is_emergency": True
+        "is_emergency": True,
     }
     mock_llm = AsyncMock()
     mock_llm.ainvoke.return_value = AIMessage(content="", tool_calls=[{"name": "escalate_call", "args": {}, "id": "1"}])
     mock_get_llm.return_value = mock_llm
-    
+
     res = await emergency_node(state)
     assert res["messages"][0].tool_calls
 
 def test_routing_to_emergency():
     assert routing_node({"is_emergency": True}) == "emergency"
 
-def test_routing_to_qualify():
-    assert routing_node({"is_emergency": False, "messages": []}) == "qualify"
+def test_routing_to_collect_info_when_not_emergency():
+    """Non-emergency with no collection_complete routes to collect_info."""
+    result = routing_node({"is_emergency": False, "collection_complete": False})
+    assert result == "collect_info"
+
+def test_routing_to_booking_when_collection_complete():
+    result = routing_node({
+        "is_emergency": False,
+        "collection_complete": True,
+        "booking_complete": False,
+    })
+    assert result == "booking"
+
+def test_routing_to_end_when_booking_complete():
+    result = routing_node({
+        "is_emergency": False,
+        "collection_complete": True,
+        "booking_complete": True,
+    })
+    assert result == "end"
