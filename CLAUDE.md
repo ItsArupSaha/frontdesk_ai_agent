@@ -342,5 +342,5 @@ ngrok http 8000
 ---
 
 ## Current status
-Phase 1 — not started.
-Next action: build backend/ scaffold and Phase 1 implementation.
+Phase 1 — Completed
+Next action: Phase 2 implementation.
