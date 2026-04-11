@@ -32,7 +32,7 @@ connection, and isolated data.
 ### Layer 2 — Brain (FastAPI + LangGraph + Claude)
 - FastAPI: async Python web server, receives Vapi webhooks
 - LangGraph: conversation state machine
-- Claude claude-sonnet-4-20250514: LLM for reasoning and tool-calling
+- gpt-4o-mini: LLM for reasoning and tool-calling
 - States: GREETING → QUALIFY → (EMERGENCY | BOOK | OUT_OF_AREA | FAQ) → CONFIRM
 
 ### Layer 3 — Integrations (direct API, NO Zapier or middleware)
@@ -69,7 +69,7 @@ connection, and isolated data.
 | Backend language | Python 3.11+ | LangGraph is Python-native |
 | Web framework | FastAPI | Async, fast, auto-docs |
 | Agent framework | LangGraph | State machine for conversation flow |
-| LLM | Claude claude-sonnet-4-20250514 via Anthropic SDK | Best tool-calling |
+| LLM | OpenAI gpt-4o-mini | Best tool-calling |
 | Voice | Vapi.ai | Handles all telephony |
 | SMS | Twilio Python SDK | Industry standard, direct API |
 | Database | PostgreSQL via Supabase | Managed, free tier, realtime |
@@ -167,7 +167,7 @@ GREETING
 
 ---
 
-## LLM tools (Claude can call these)
+## LLM tools (OpenAI can call these)
 
 | Tool name | What it does |
 |---|---|

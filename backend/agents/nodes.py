@@ -14,6 +14,13 @@ from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# LLM cache — one bound-tools instance per client_id to avoid rebuilding on
+# every node invocation (ChatOpenAI + bind_tools is not free).
+# ---------------------------------------------------------------------------
+_llm_cache: dict[str, object] = {}
+
+
 # Keywords that signal the last AI message was asking about a particular field.
 _FIELD_KEYWORDS: dict[str, list[str]] = {
     "caller_name": ["your name", "get your name", "name please", "may i have your name"],
@@ -27,13 +34,19 @@ _FIELD_KEYWORDS: dict[str, list[str]] = {
 
 
 def _get_llm(client_config: dict):
-    """Build an LLM bound with the standard tool set."""
+    """Return a cached LLM bound with the standard tool set.
+
+    The ChatOpenAI instance and its bound tools are built once per client_id
+    and reused across all node calls within the process lifetime.
+    """
     from langchain_openai import ChatOpenAI
 
-    api_key = settings.openai_api_key if settings.openai_api_key else "dummy"
     client_id = client_config.get("id", "")
-    llm = ChatOpenAI(model="gpt-4o-mini", api_key=api_key)
-    return llm.bind_tools(build_tools(client_config, client_id))
+    if client_id not in _llm_cache:
+        api_key = settings.openai_api_key if settings.openai_api_key else "dummy"
+        llm = ChatOpenAI(model="gpt-4o-mini", api_key=api_key)
+        _llm_cache[client_id] = llm.bind_tools(build_tools(client_config, client_id))
+    return _llm_cache[client_id]
 
 
 def _last_user_message(messages: list) -> str | None:
@@ -52,21 +65,67 @@ def _last_ai_message(messages: list) -> str | None:
     return None
 
 
-def _try_extract_field(messages: list, field: str) -> str | None:
-    """If the last AI message asked for `field`, return the user's last response.
+def _clean_extracted_value(raw: str, field: str) -> str:
+    """Strip common preamble phrases from a user's answer.
 
-    This is a heuristic: we look for field-specific keywords in the last AI
-    message and, if found, treat the subsequent user message as the answer.
+    Callers often say "My name is John" instead of just "John".
+    We clean the raw captured string so the stored value is the actual datum.
     """
-    last_ai = _last_ai_message(messages)
-    last_user = _last_user_message(messages)
+    import re
 
-    if not last_ai or not last_user:
+    text = raw.strip()
+
+    if field == "caller_name":
+        # Remove "my name is / I'm / I am / this is / call me ..."
+        text = re.sub(
+            r"(?i)^(my name is|i'?m|i am|this is|call me|it'?s)\s+", "", text
+        ).strip()
+
+    elif field == "caller_phone":
+        # Extract the first phone-like token (digits, +, -, spaces)
+        m = re.search(r"[\+\d][\d\s\-\(\)]{6,}", text)
+        if m:
+            text = re.sub(r"\s+", "", m.group()).strip()
+
+    elif field == "caller_address":
+        # Remove "I'm at / I live at / my address is / located at ..."
+        text = re.sub(
+            r"(?i)^(i'?m at|i live at|my address is|located at|it'?s at|address is)\s+",
+            "",
+            text,
+        ).strip()
+
+    elif field == "problem_description":
+        # Remove "I have a / there's a / my ... is ..."
+        text = re.sub(
+            r"(?i)^(i have (a |an )?|there'?s (a |an )?|it'?s (a |an )?)\s*",
+            "",
+            text,
+        ).strip()
+
+    return text if text else raw.strip()
+
+
+def _try_extract_field(messages: list, field: str) -> str | None:
+    """Search the full conversation history for a user answer to a field question.
+
+    Walks all (AIMessage, HumanMessage) adjacent pairs in chronological order
+    (most-recent first) and returns the user message that immediately followed
+    an AI message containing the field's keywords.  Searching the full history
+    (not just the last pair) handles cases where qualify_node asked a field
+    question and the user answered before collect_info_node took over.
+    """
+    keywords = _FIELD_KEYWORDS.get(field, [])
+    if not keywords:
         return None
 
-    keywords = _FIELD_KEYWORDS.get(field, [])
-    if any(kw in last_ai.lower() for kw in keywords):
-        return last_user
+    # Walk backwards through messages to find the most recent match
+    for i in range(len(messages) - 1, 0, -1):
+        if isinstance(messages[i], HumanMessage) and isinstance(messages[i - 1], AIMessage):
+            ai_text = str(messages[i - 1].content).lower()
+            user_text = messages[i].content
+            if any(kw in ai_text for kw in keywords):
+                return user_text
     return None
 
 
@@ -76,24 +135,47 @@ def _try_extract_field(messages: list, field: str) -> str | None:
 
 
 async def greeting_node(state: AgentState) -> dict:
-    """Generate the initial greeting for the caller."""
+    """Emit a static greeting and advance to the qualify turn.
+
+    Emergency detection runs first so a caller who opens with "burst pipe"
+    is immediately routed to emergency_node in the same webhook turn.
+    For non-emergencies we return a static template (no LLM call) so this
+    turn completes in under 1 second.
+    """
+    first_user_msg = _last_user_message(state["messages"])
+
+    # Emergency check — must happen before any LLM call.
+    if first_user_msg:
+        detected, _ = detect_emergency(first_user_msg)
+        if detected:
+            # The graph conditional edge will route to emergency_node.
+            return {"is_emergency": True, "current_node": "emergency"}
+
     business_name = state["client_config"].get("business_name", "our business")
-    system_prompt = (
-        f"You are Alex, the AI assistant for {business_name}. "
-        "You answer calls professionally, qualify the caller's needs, "
-        "and help them book appointments or get urgent help. "
-        "Always be warm but efficient — these are busy tradespeople's customers."
-    )
-
-    llm = _get_llm(state["client_config"])
-    messages = [SystemMessage(content=system_prompt)] + state["messages"]
-    response = await llm.ainvoke(messages)
-
-    return {"messages": [response], "current_node": "qualify"}
+    if first_user_msg:
+        greeting_text = (
+            f"Thank you for calling {business_name}! I'm Alex, your virtual assistant. "
+            f"I heard you mention '{first_user_msg[:80]}' — let me help you with that. "
+            "Could you give me a bit more detail?"
+        )
+    else:
+        greeting_text = (
+            f"Thank you for calling {business_name}! I'm Alex, your virtual assistant. "
+            "How can I help you today?"
+        )
+    return {
+        "messages": [AIMessage(content=greeting_text)],
+        "current_node": "qualify",
+    }
 
 
 async def qualify_node(state: AgentState) -> dict:
-    """Qualify the caller's intent and detect emergencies."""
+    """Qualify the caller's intent and detect emergencies.
+
+    Also sets current_node so the webhook can persist where to resume next
+    turn — this is required because the greeting→qualify edge was removed to
+    keep each webhook turn to a single LLM call.
+    """
     # Emergency detection runs FIRST before any LLM call
     last_message = _last_user_message(state["messages"])
     is_emergency = state.get("is_emergency", False)
@@ -101,23 +183,33 @@ async def qualify_node(state: AgentState) -> dict:
     if last_message and not is_emergency:
         detected, _ = detect_emergency(last_message)
         if detected:
-            return {"is_emergency": True}
+            # Routing node will route to emergency node in same turn.
+            # current_node stays "emergency" for any subsequent turns.
+            return {"is_emergency": True, "current_node": "emergency"}
 
     business_name = state["client_config"].get("business_name", "our business")
     system_prompt = (
         f"You are Alex, the AI assistant for {business_name}. "
-        "Ask qualifying questions:\n"
-        "1. What is the problem?\n"
-        "2. What is the address / are you in our service area?\n"
-        "3. How urgent is this?\n\n"
-        "Do not ask all 3 at once — one question per turn."
+        "The caller has contacted us for service. Your job is to:\n"
+        "1. Warmly acknowledge what the caller said.\n"
+        "2. Confirm it sounds non-emergency and that you will help them book a visit.\n"
+        "3. Ask ONE question only: 'To get you scheduled, may I start with your name?'\n\n"
+        "IMPORTANT: Do NOT ask for their phone number, address, or calendar availability "
+        "— a dedicated booking flow handles that next. "
+        "Keep your response to 2 sentences maximum."
     )
 
     llm = _get_llm(state["client_config"])
     messages = [SystemMessage(content=system_prompt)] + state["messages"]
     response = await llm.ainvoke(messages)
 
-    return {"messages": [response]}
+    # Determine where the next webhook turn should start.
+    if state.get("collection_complete"):
+        next_node = "booking"
+    else:
+        next_node = "collect_info"
+
+    return {"messages": [response], "current_node": next_node}
 
 
 async def emergency_node(state: AgentState) -> dict:
@@ -162,29 +254,51 @@ async def collect_info_node(state: AgentState) -> dict:
     caller_address = state.get("caller_address")
     problem_description = state.get("problem_description")
 
-    if not caller_name:
-        extracted = _try_extract_field(messages, "caller_name")
-        if extracted:
-            caller_name = extracted
+    # ------------------------------------------------------------------
+    # 1. Use the LLM to extract all fields from the full conversation in
+    #    one structured-output call.  This replaces the fragile keyword
+    #    heuristic which mis-assigns values when questions arrive out of
+    #    order or the LLM rephrases them.
+    # ------------------------------------------------------------------
+    from pydantic import BaseModel as _BM
+    from langchain_openai import ChatOpenAI as _OAI
+
+    class _Fields(_BM):
+        caller_name: str | None = None
+        caller_phone: str | None = None
+        caller_address: str | None = None
+        problem_description: str | None = None
+
+    extraction_prompt = (
+        "Extract the following fields from the conversation below.\n"
+        "Return ONLY the values actually stated by the customer — "
+        "do NOT invent or guess. Use null for anything not mentioned.\n\n"
+        "Fields to extract:\n"
+        "- caller_name: the customer's full name\n"
+        "- caller_phone: the customer's phone number (digits only, E.164 if possible)\n"
+        "- caller_address: the service address\n"
+        "- problem_description: what is broken / what service is needed\n"
+    )
+    api_key = settings.openai_api_key if settings.openai_api_key else "dummy"
+    extractor = _OAI(model="gpt-4o-mini", api_key=api_key).with_structured_output(_Fields)
+    try:
+        extracted: _Fields = await extractor.ainvoke(
+            [SystemMessage(content=extraction_prompt)] + messages
+        )
+        if not caller_name and extracted.caller_name:
+            caller_name = extracted.caller_name
             updates["caller_name"] = caller_name
-
-    if not caller_phone:
-        extracted = _try_extract_field(messages, "caller_phone")
-        if extracted:
-            caller_phone = extracted
+        if not caller_phone and extracted.caller_phone:
+            caller_phone = extracted.caller_phone
             updates["caller_phone"] = caller_phone
-
-    if not caller_address:
-        extracted = _try_extract_field(messages, "caller_address")
-        if extracted:
-            caller_address = extracted
+        if not caller_address and extracted.caller_address:
+            caller_address = extracted.caller_address
             updates["caller_address"] = caller_address
-
-    if not problem_description:
-        extracted = _try_extract_field(messages, "problem_description")
-        if extracted:
-            problem_description = extracted
+        if not problem_description and extracted.problem_description:
+            problem_description = extracted.problem_description
             updates["problem_description"] = problem_description
+    except Exception as exc:
+        logger.warning("Structured extraction failed, continuing", error=str(exc))
 
     # ------------------------------------------------------------------
     # 2. Check if collection is complete.
@@ -192,7 +306,6 @@ async def collect_info_node(state: AgentState) -> dict:
     if all([caller_name, caller_phone, caller_address, problem_description]):
         updates["collection_complete"] = True
         updates["current_node"] = "booking"
-        # Add a bridging message so the agent transitions smoothly
         reply = AIMessage(
             content="Great, I have everything I need! Let me check available times for you."
         )
@@ -309,11 +422,21 @@ async def booking_node(state: AgentState) -> dict:
     last_user = (_last_user_message(messages) or "").lower()
     chosen_slot: dict | None = None
 
-    # Match by slot number ([1], [2], [3]) or by label keywords
+    # Ordinal words map to slot index
+    _ORDINALS = {"first": 1, "second": 2, "third": 3, "1st": 1, "2nd": 2, "3rd": 3}
+
+    # Match by slot number ([1], [2], [3]), ordinal words, or by label keywords
     for i, slot in enumerate(available_slots):
-        if str(i + 1) in last_user:
+        slot_num = i + 1
+        # Digit match: "1", "option 1", "[1]"
+        if str(slot_num) in last_user:
             chosen_slot = slot
             break
+        # Ordinal word match: "first", "second", "third"
+        if any(ord_word in last_user and ord_val == slot_num for ord_word, ord_val in _ORDINALS.items()):
+            chosen_slot = slot
+            break
+        # Label keyword match (day names, times)
         label_words = slot["label"].lower().split()
         for word in label_words:
             if len(word) > 3 and word in last_user:

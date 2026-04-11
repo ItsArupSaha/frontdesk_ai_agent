@@ -44,23 +44,34 @@ workflow.set_conditional_entry_point(
     },
 )
 
-# After greeting → go to qualify in same turn
-workflow.add_edge("greeting", "qualify")
+# After greeting → emergency if emergency was detected, otherwise END.
+# greeting_node sets current_node="qualify" for normal turns so the next
+# webhook resumes at qualify.  When is_emergency=True the graph routes to
+# emergency_node in the same turn without an extra round-trip.
+workflow.add_conditional_edges(
+    "greeting",
+    lambda state: "emergency" if state.get("is_emergency") else END,
+    {"emergency": "emergency", END: END},
+)
 
-# After qualify → route based on state (emergency / collect_info / faq)
+# After qualify → only emergency routes to emergency node in the same turn.
+# For every other route the graph ends; qualify_node sets current_node so the
+# next webhook turn resumes at the correct node.
 workflow.add_conditional_edges(
     "qualify",
     routing_node,
     {
         "emergency": "emergency",
-        "collect_info": "collect_info",
-        "booking": "booking",
-        "faq": "faq",
+        "collect_info": END,
+        "booking": END,
+        "faq": END,
         "end": END,
     },
 )
 
-# After collect_info → check if complete; if yes route to booking in same turn
+# After collect_info → check if complete; if yes route to booking in same turn.
+# booking_node does NOT call the LLM (it uses the calendar API + builds a static
+# AIMessage), so this chain is: static-reply + calendar call — no extra LLM round-trip.
 workflow.add_conditional_edges(
     "collect_info",
     lambda state: "booking" if state.get("collection_complete") else END,

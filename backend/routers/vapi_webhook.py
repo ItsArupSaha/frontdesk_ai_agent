@@ -129,7 +129,9 @@ async def vapi_webhook(request: Request) -> dict:
             if phone_num and duration_seconds > 15:
                 supabase = get_supabase()
                 try:
-                    # Check if this call resulted in a booking
+                    # Check if this call resulted in a booking.
+                    # A missing call_log row (caller never reached the assistant)
+                    # is treated as "not booked" — always send recovery SMS.
                     log_res = (
                         supabase.table("call_logs")
                         .select("was_booked, client_id")
@@ -137,29 +139,40 @@ async def vapi_webhook(request: Request) -> dict:
                         .limit(1)
                         .execute()
                     )
+                    was_booked: bool = False
+                    client_id_for_sms: str = ""
                     if log_res.data:
                         row = log_res.data[0]
                         was_booked = row.get("was_booked", False)
                         client_id_for_sms = str(row.get("client_id", ""))
-                        if not was_booked:
-                            # Fetch business name
-                            client_res = (
-                                supabase.table("clients")
-                                .select("business_name")
-                                .eq("id", client_id_for_sms)
-                                .limit(1)
-                                .execute()
-                            )
-                            business_name = "our team"
-                            if client_res.data:
-                                business_name = client_res.data[0].get("business_name", "our team")
 
-                            from backend.services import sms_service
-                            sms_service.send_missed_call_recovery(
-                                caller_number=phone_num,
-                                business_name=business_name,
-                                client_id=client_id_for_sms,
-                            )
+                    if not was_booked:
+                        # Resolve business name: from the matched client record, or
+                        # fall back to the first active client (single-tenant fallback).
+                        business_name = "our team"
+                        lookup_filter = (
+                            supabase.table("clients")
+                            .select("id, business_name")
+                            .eq("id", client_id_for_sms)
+                            .limit(1)
+                        ) if client_id_for_sms else (
+                            supabase.table("clients")
+                            .select("id, business_name")
+                            .eq("is_active", True)
+                            .limit(1)
+                        )
+                        client_res = lookup_filter.execute()
+                        if client_res.data:
+                            business_name = client_res.data[0].get("business_name", "our team")
+                            if not client_id_for_sms:
+                                client_id_for_sms = str(client_res.data[0].get("id", ""))
+
+                        from backend.services import sms_service
+                        sms_service.send_missed_call_recovery(
+                            caller_number=phone_num,
+                            business_name=business_name,
+                            client_id=client_id_for_sms,
+                        )
                 except Exception as exc:
                     logger.error("Missed-call recovery failed", call_id=call_id, error=str(exc))
 
@@ -176,68 +189,111 @@ async def vapi_webhook(request: Request) -> dict:
         )
 
         supabase = get_supabase()
+        loop = asyncio.get_event_loop()
 
-        # 1. Fetch client config from DB; fall back to test config on failure
-        client_config: dict | None = None
-        try:
-            client_res = (
-                supabase.table("clients")
-                .select("*")
-                .eq("business_name", "Test Plumbing Co")
-                .limit(1)
-                .execute()
-            )
-            if client_res.data:
-                row = client_res.data[0]
-                client_config = {
-                    "id": str(row["id"]),
-                    "business_name": row["business_name"],
-                    "emergency_phone_number": row["emergency_phone_number"],
-                    "working_hours": row["working_hours"],
-                    "services_offered": row["services_offered"],
-                    "service_area_description": row["service_area_description"],
-                    "is_active": row["is_active"],
-                }
-        except Exception as exc:
-            logger.warning("DB client lookup failed", error=str(exc))
+        # 1 & 2. Fetch client config AND conversation state in parallel.
+        # supabase-py is a synchronous client — wrapping each call in
+        # run_in_executor prevents it from blocking the async event loop,
+        # and gather() runs both DB round-trips concurrently.
+        def _db_client_config() -> dict | None:
+            try:
+                res = (
+                    supabase.table("clients")
+                    .select("*")
+                    .eq("business_name", "Test Plumbing Co")
+                    .limit(1)
+                    .execute()
+                )
+                if res.data:
+                    row = res.data[0]
+                    return {
+                        "id": str(row["id"]),
+                        "business_name": row["business_name"],
+                        "emergency_phone_number": row["emergency_phone_number"],
+                        "working_hours": row["working_hours"],
+                        "services_offered": row["services_offered"],
+                        "service_area_description": row["service_area_description"],
+                        "is_active": row["is_active"],
+                    }
+            except Exception as exc:
+                logger.warning("DB client lookup failed", error=str(exc))
+            return None
 
-        if not client_config:
-            client_config = {
-                "id": "123",
-                "business_name": "Test Plumbing Co",
-                "emergency_phone_number": "+15550000000",
-                "working_hours": {},
-                "services_offered": ["plumbing"],
-                "service_area_description": "New York",
-                "is_active": True,
-            }
+        def _db_conversation_state() -> dict:
+            default: dict = {"current_node": "greeting", "is_emergency": False}
+            try:
+                res = (
+                    supabase.table("conversation_state")
+                    .select("*")
+                    .eq("call_id", call_id)
+                    .limit(1)
+                    .execute()
+                )
+                if res.data:
+                    row = res.data[0]
+                    # Recover persisted available_slots from sentinel message entry
+                    available_slots: list = []
+                    for msg in row.get("messages") or []:
+                        if msg.get("role") == "__slots__":
+                            import json as _json
+                            try:
+                                available_slots = _json.loads(msg.get("content", "[]"))
+                            except Exception:
+                                available_slots = []
+                            break
+                    return {
+                        "current_node": row.get("current_node", "greeting"),
+                        "is_emergency": row.get("is_emergency", False),
+                        "caller_name": row.get("caller_name"),
+                        "caller_phone": row.get("caller_phone"),
+                        "caller_address": row.get("caller_address"),
+                        "problem_description": row.get("problem_description"),
+                        "collection_complete": row.get("collection_complete", False),
+                        "booking_complete": row.get("booking_complete", False),
+                        "available_slots": available_slots,
+                    }
+            except Exception as exc:
+                logger.warning("State lookup failed", error=str(exc))
+            return default
+
+        client_config_raw, state_data = await asyncio.gather(
+            loop.run_in_executor(None, _db_client_config),
+            loop.run_in_executor(None, _db_conversation_state),
+        )
+
+        client_config: dict = client_config_raw or {
+            "id": "123",
+            "business_name": "Test Plumbing Co",
+            "emergency_phone_number": "+15550000000",
+            "working_hours": {},
+            "services_offered": ["plumbing"],
+            "service_area_description": "New York",
+            "is_active": True,
+        }
 
         emergency_number = client_config.get("emergency_phone_number", "+15550000000")
 
-        # 2. Fetch or initialise conversation state from DB
-        state_data: dict = {"current_node": "greeting", "is_emergency": False}
+        # 3. Ensure a call_logs row exists for this call (upsert — safe on every turn).
         try:
-            state_res = (
-                supabase.table("conversation_state")
-                .select("*")
-                .eq("call_id", call_id)
-                .limit(1)
-                .execute()
+            await loop.run_in_executor(
+                None,
+                lambda: supabase.table("call_logs")
+                .upsert(
+                    {
+                        "call_id": call_id,
+                        "client_id": client_config["id"],
+                        "caller_number": phone_num,
+                        "was_emergency": state_data.get("is_emergency", False),
+                        "was_booked": state_data.get("booking_complete", False),
+                        "status": "in_progress",
+                    },
+                    on_conflict="call_id",
+                    ignore_duplicates=True,
+                )
+                .execute(),
             )
-            if state_res.data:
-                row = state_res.data[0]
-                state_data = {
-                    "current_node": row.get("current_node", "greeting"),
-                    "is_emergency": row.get("is_emergency", False),
-                    "caller_name": row.get("caller_name"),
-                    "caller_phone": row.get("caller_phone"),
-                    "caller_address": row.get("caller_address"),
-                    "problem_description": row.get("problem_description"),
-                    "collection_complete": row.get("collection_complete", False),
-                    "booking_complete": row.get("booking_complete", False),
-                }
         except Exception as exc:
-            logger.warning("State lookup failed", error=str(exc))
+            logger.warning("call_log upsert failed", call_id=call_id, error=str(exc))
 
         messages = []
         if payload.message.conversation:
@@ -262,7 +318,7 @@ async def vapi_webhook(request: Request) -> dict:
             "is_emergency": state_data.get("is_emergency", False),
             "service_area_confirmed": False,
             "collection_complete": state_data.get("collection_complete", False),
-            "available_slots": [],
+            "available_slots": state_data.get("available_slots", []),
             "chosen_slot": None,
             "booking_complete": state_data.get("booking_complete", False),
             "client_config": client_config,
@@ -291,15 +347,60 @@ async def vapi_webhook(request: Request) -> dict:
                     "content": str(m.content),
                 }
                 for m in result_state["messages"]
-            ],
+            ] + (
+                # Sentinel entry to persist available_slots across webhook turns
+                [{"role": "__slots__", "content": __import__("json").dumps(result_state.get("available_slots", []))}]
+                if result_state.get("available_slots")
+                else []
+            ),
         }
         try:
-            supabase.table("conversation_state").upsert(updated_state_data).execute()
+            await loop.run_in_executor(
+                None,
+                lambda: supabase.table("conversation_state")
+                .upsert(updated_state_data)
+                .execute(),
+            )
         except Exception as exc:
             logger.error("Failed to save conversation state", error=str(exc))
 
-        # 5. Translate graph output to Vapi response
+        # 5. Update call_log flags based on graph outcome (best-effort, non-blocking).
+        is_emergency_result = result_state.get("is_emergency", False)
+        is_booked_result = result_state.get("booking_complete", False)
+        if is_emergency_result or is_booked_result:
+            try:
+                update_payload: dict = {}
+                if is_emergency_result:
+                    update_payload["was_emergency"] = True
+                if is_booked_result:
+                    update_payload["was_booked"] = True
+                await loop.run_in_executor(
+                    None,
+                    lambda: supabase.table("call_logs")
+                    .update(update_payload)
+                    .eq("call_id", call_id)
+                    .execute(),
+                )
+            except Exception as exc:
+                logger.error("call_log flag update failed", call_id=call_id, error=str(exc))
+
+        # 6. Translate graph output to Vapi response
         final_message = result_state["messages"][-1]
+
+        # Emergency: always transfer — do not rely solely on the LLM calling the tool.
+        if result_state.get("is_emergency"):
+            spoken = (
+                final_message.content
+                if isinstance(final_message, AIMessage) and final_message.content
+                else "Connecting you to our emergency technician now."
+            )
+            return {
+                "response": {
+                    "action": "transfer-call",
+                    "phoneNumber": emergency_number,
+                    "message": spoken,
+                }
+            }
 
         if isinstance(final_message, AIMessage) and final_message.tool_calls:
             for tc in final_message.tool_calls:

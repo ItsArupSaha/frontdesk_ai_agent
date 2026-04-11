@@ -17,14 +17,15 @@ def mock_state():
     }
 
 @pytest.mark.asyncio
-@patch("backend.agents.nodes._get_llm")
-async def test_greeting_node_returns_response(mock_get_llm, mock_state):
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value = AIMessage(content="Hi there")
-    mock_get_llm.return_value = mock_llm
-
+async def test_greeting_node_returns_response(mock_state):
+    # greeting_node is now static (no LLM call) — verify it returns an AIMessage
+    # that includes the business name and advances current_node to "qualify".
     res = await greeting_node(mock_state)
-    assert res["messages"][0].content == "Hi there"
+    assert res["messages"][0].content != ""
+    assert isinstance(res["messages"][0], AIMessage)
+    assert res.get("current_node") == "qualify"
+    # Should acknowledge the caller's first message
+    assert "Hello" in res["messages"][0].content or "Test" in res["messages"][0].content
 
 @pytest.mark.asyncio
 @patch("backend.agents.nodes._get_llm")
