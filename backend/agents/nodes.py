@@ -4,6 +4,8 @@ LangGraph node functions for the AI front-desk agent.
 Each node processes one conversation turn and returns a partial state update.
 The LangGraph runner merges partial updates into the cumulative AgentState.
 """
+import asyncio
+
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from backend.agents.state import AgentState
@@ -260,6 +262,7 @@ async def collect_info_node(state: AgentState) -> dict:
     #    heuristic which mis-assigns values when questions arrive out of
     #    order or the LLM rephrases them.
     # ------------------------------------------------------------------
+    import re as _re
     from pydantic import BaseModel as _BM
     from langchain_openai import ChatOpenAI as _OAI
 
@@ -269,15 +272,45 @@ async def collect_info_node(state: AgentState) -> dict:
         caller_address: str | None = None
         problem_description: str | None = None
 
+    def _validate_extracted(field: str, value: str | None) -> str | None:
+        """Accept extracted values only when they pass field-specific format checks.
+
+        Rejects hallucinated values so a message like 'I need my AC fixed'
+        cannot cause the extractor to invent a name, phone number, or address.
+        """
+        if not value:
+            return None
+        v = value.strip()
+        if not v:
+            return None
+        if field == "caller_phone":
+            # Must contain at least 7 digits (rules out hallucinated placeholders)
+            if len(_re.sub(r"\D", "", v)) < 7:
+                return None
+        elif field == "caller_address":
+            # Street addresses begin with a house/unit number
+            if not _re.match(r"^\d+", v):
+                return None
+        elif field == "caller_name":
+            # Must have at least 3 letters (rules out abbreviations like "AC")
+            if len(_re.sub(r"[^a-zA-Z]", "", v)) < 3:
+                return None
+        # problem_description: accept any non-empty string ≥ 3 chars
+        elif field == "problem_description":
+            if len(v) < 3:
+                return None
+        return v
+
     extraction_prompt = (
         "Extract the following fields from the conversation below.\n"
-        "Return ONLY the values actually stated by the customer — "
-        "do NOT invent or guess. Use null for anything not mentioned.\n\n"
+        "Return ONLY values EXPLICITLY stated by the customer in their own words.\n"
+        "Use null for ANY field the customer did not directly provide.\n\n"
         "Fields to extract:\n"
-        "- caller_name: the customer's full name\n"
-        "- caller_phone: the customer's phone number (digits only, E.164 if possible)\n"
-        "- caller_address: the service address\n"
-        "- problem_description: what is broken / what service is needed\n"
+        "- caller_name: the customer's name (null if not stated)\n"
+        "- caller_phone: the customer's phone number in E.164 format (null if not stated)\n"
+        "- caller_address: the full service address (null if not stated)\n"
+        "- problem_description: what is broken or what service is needed\n\n"
+        "IMPORTANT: Do NOT infer, guess, or fill in missing information."
     )
     api_key = settings.openai_api_key if settings.openai_api_key else "dummy"
     extractor = _OAI(model="gpt-4o-mini", api_key=api_key).with_structured_output(_Fields)
@@ -285,18 +318,26 @@ async def collect_info_node(state: AgentState) -> dict:
         extracted: _Fields = await extractor.ainvoke(
             [SystemMessage(content=extraction_prompt)] + messages
         )
-        if not caller_name and extracted.caller_name:
-            caller_name = extracted.caller_name
-            updates["caller_name"] = caller_name
-        if not caller_phone and extracted.caller_phone:
-            caller_phone = extracted.caller_phone
-            updates["caller_phone"] = caller_phone
-        if not caller_address and extracted.caller_address:
-            caller_address = extracted.caller_address
-            updates["caller_address"] = caller_address
-        if not problem_description and extracted.problem_description:
-            problem_description = extracted.problem_description
-            updates["problem_description"] = problem_description
+        if not caller_name:
+            validated_name = _validate_extracted("caller_name", extracted.caller_name)
+            if validated_name:
+                caller_name = validated_name
+                updates["caller_name"] = caller_name
+        if not caller_phone:
+            validated_phone = _validate_extracted("caller_phone", extracted.caller_phone)
+            if validated_phone:
+                caller_phone = validated_phone
+                updates["caller_phone"] = caller_phone
+        if not caller_address:
+            validated_address = _validate_extracted("caller_address", extracted.caller_address)
+            if validated_address:
+                caller_address = validated_address
+                updates["caller_address"] = caller_address
+        if not problem_description:
+            validated_problem = _validate_extracted("problem_description", extracted.problem_description)
+            if validated_problem:
+                problem_description = validated_problem
+                updates["problem_description"] = problem_description
     except Exception as exc:
         logger.warning("Structured extraction failed, continuing", error=str(exc))
 
@@ -477,40 +518,49 @@ async def booking_node(state: AgentState) -> dict:
         )
         return {"messages": [reply], "current_node": "booking"}
 
-    # Send SMS confirmation (never raises)
-    sms_service.send_booking_confirmation(
-        booking_details={
-            "caller_name": caller_name,
-            "caller_phone": caller_phone,
-            "appointment_label": chosen_slot["label"],
-            "business_name": business_name,
-        },
-        client_config=client_config,
-    )
+    # Calendar event is confirmed. Fire SMS + DB writes as background tasks so
+    # we return the verbal confirmation to Vapi immediately — well within the
+    # 4-second timeout. Both tasks are best-effort and log their own errors.
+    call_id_bg = state.get("call_id")
 
-    # Persist booking to DB (best effort — do not crash the response)
-    try:
-        from backend.db.client import get_supabase
-        supabase = get_supabase()
-        supabase.table("bookings").insert({
-            "client_id": client_id,
-            "call_id": state.get("call_id"),
-            "caller_name": caller_name,
-            "caller_phone": caller_phone,
-            "caller_address": caller_address,
-            "problem_description": problem_description,
-            "appointment_start": chosen_slot["start"],
-            "appointment_end": chosen_slot["end"],
-            "google_event_id": google_event_id,
-            "confirmation_sms_sent": True,
-            "status": "confirmed",
-        }).execute()
-        # Mark call as booked
-        supabase.table("call_logs").update({"was_booked": True}).eq(
-            "call_id", state.get("call_id")
-        ).execute()
-    except Exception as exc:
-        logger.error("Failed to persist booking to DB", client_id=client_id, error=str(exc))
+    def _sms_and_db() -> None:
+        """Synchronous helper: send SMS then persist booking row and call flag."""
+        # SMS (never raises — sms_service handles its own exceptions)
+        sms_service.send_booking_confirmation(
+            booking_details={
+                "caller_name": caller_name,
+                "caller_phone": caller_phone,
+                "appointment_label": chosen_slot["label"],
+                "business_name": business_name,
+            },
+            client_config=client_config,
+        )
+
+        # DB writes (best effort)
+        try:
+            from backend.db.client import get_supabase
+            supabase = get_supabase()
+            supabase.table("bookings").insert({
+                "client_id": client_id,
+                "call_id": call_id_bg,
+                "caller_name": caller_name,
+                "caller_phone": caller_phone,
+                "caller_address": caller_address,
+                "problem_description": problem_description,
+                "appointment_start": chosen_slot["start"],
+                "appointment_end": chosen_slot["end"],
+                "google_event_id": google_event_id,
+                "confirmation_sms_sent": True,
+                "status": "confirmed",
+            }).execute()
+            supabase.table("call_logs").update({"was_booked": True}).eq(
+                "call_id", call_id_bg
+            ).execute()
+        except Exception as exc:
+            logger.error("Failed to persist booking to DB", client_id=client_id, error=str(exc))
+
+    # Schedule as a background task — do not await it
+    asyncio.create_task(asyncio.to_thread(_sms_and_db))
 
     reply = AIMessage(
         content=(
@@ -533,7 +583,13 @@ async def booking_node(state: AgentState) -> dict:
 
 
 def routing_node(state: AgentState) -> str:
-    """Determine the next node after qualify based on current state."""
+    """Determine the next node after qualify based on current state.
+
+    Routes to collect_info until all required fields are gathered
+    (collection_complete=True), then to booking until confirmed.
+    collection_complete is only set by collect_info_node after validated
+    extraction, so hallucinated values cannot prematurely advance the state.
+    """
     if state.get("is_emergency"):
         return "emergency"
     if not state.get("collection_complete"):

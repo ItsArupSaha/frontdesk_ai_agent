@@ -32,7 +32,28 @@ def build_tools(client_config: dict, client_id: str = ""):
 
     @tool
     def get_business_info(question: str) -> str:
-        """Answers queries about the business, services offered, hours, and service area."""
+        """Answers queries about the business, services offered, hours, and service area.
+
+        Uses the RAG knowledge base to retrieve the most relevant business-specific
+        information for the caller's question. Falls back to raw config when the
+        knowledge base has no matching chunks.
+        """
+        import asyncio
+        from backend.services.rag_service import query_knowledge
+
+        # Only run RAG when we have a real client_id
+        if client_id:
+            try:
+                loop = asyncio.get_event_loop()
+                context = loop.run_until_complete(
+                    query_knowledge(client_id, question, top_k=3)
+                )
+                if context:
+                    return context
+            except Exception as exc:
+                logger.warning("RAG query failed, falling back to config", error=str(exc))
+
+        # Fallback: assemble answer directly from config dict
         services = ", ".join(client_config.get("services_offered", []))
         return (
             f"Business: {client_config.get('business_name')}. "

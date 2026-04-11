@@ -115,7 +115,7 @@ async def vapi_webhook(request: Request) -> dict:
         msg_type = payload.message.type
 
         # ------------------------------------------------------------------
-        # Call ended — send missed-call recovery SMS if caller didn't book
+        # Call ended — generate summary + send missed-call recovery SMS
         # ------------------------------------------------------------------
         if msg_type == "status-update" and payload.message.status == "ended":
             call_id = payload.message.call.id if payload.message.call else "unknown"
@@ -126,8 +126,61 @@ async def vapi_webhook(request: Request) -> dict:
             )
             duration_seconds = payload.message.durationSeconds or 0
 
+            supabase = get_supabase()
+
+            # --- Generate and persist call summary ---
+            try:
+                conv_res = (
+                    supabase.table("conversation_state")
+                    .select("messages, client_id")
+                    .eq("call_id", call_id)
+                    .limit(1)
+                    .execute()
+                )
+                if conv_res.data:
+                    conv_row = conv_res.data[0]
+                    raw_messages: list[dict] = conv_row.get("messages") or []
+                    summary_client_id: str = str(conv_row.get("client_id", ""))
+
+                    # Fetch client_config for business name
+                    summary_client_config: dict = {}
+                    if summary_client_id:
+                        cfg_res = (
+                            supabase.table("clients")
+                            .select("business_name")
+                            .eq("id", summary_client_id)
+                            .limit(1)
+                            .execute()
+                        )
+                        if cfg_res.data:
+                            summary_client_config = cfg_res.data[0]
+
+                    from backend.utils.summarizer import generate_call_summary
+                    summary = await generate_call_summary(raw_messages, summary_client_config)
+
+                    # Update existing call_logs row if it exists.
+                    # If none exists (call ended before agent responded), insert one
+                    # so the summary is never silently dropped.
+                    update_res = supabase.table("call_logs").update(
+                        {"summary": summary}
+                    ).eq("call_id", call_id).execute()
+
+                    if not update_res.data:
+                        # No call_logs row yet — insert a minimal one with the summary
+                        supabase.table("call_logs").insert({
+                            "call_id": call_id,
+                            "client_id": summary_client_id or None,
+                            "summary": summary,
+                            "status": "ended",
+                        }).execute()
+                        logger.info("Call summary inserted (new row)", call_id=call_id)
+                    else:
+                        logger.info("Call summary stored", call_id=call_id)
+            except Exception as exc:
+                logger.error("Failed to generate/store call summary", call_id=call_id, error=str(exc))
+
+            # --- Missed-call recovery SMS ---
             if phone_num and duration_seconds > 15:
-                supabase = get_supabase()
                 try:
                     # Check if this call resulted in a booking.
                     # A missing call_log row (caller never reached the assistant)
