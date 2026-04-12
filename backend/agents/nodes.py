@@ -524,7 +524,7 @@ async def booking_node(state: AgentState) -> dict:
     call_id_bg = state.get("call_id")
 
     def _sms_and_db() -> None:
-        """Synchronous helper: send SMS then persist booking row and call flag."""
+        """Synchronous helper: send SMS then persist booking row, call flag, and reminders."""
         # SMS (never raises — sms_service handles its own exceptions)
         sms_service.send_booking_confirmation(
             booking_details={
@@ -558,6 +558,63 @@ async def booking_node(state: AgentState) -> dict:
             ).execute()
         except Exception as exc:
             logger.error("Failed to persist booking to DB", client_id=client_id, error=str(exc))
+
+        # Queue reminder (24h before) and review request (2h after) — never raises
+        try:
+            from datetime import datetime as _dt, timedelta as _td
+            appt_start_dt = _dt.fromisoformat(chosen_slot["start"])
+            appt_end_dt   = _dt.fromisoformat(chosen_slot["end"])
+            reminder_at   = appt_start_dt - _td(hours=24)
+            review_at     = appt_end_dt   + _td(hours=2)
+
+            reminder_msg = (
+                f"Reminder: {business_name} appointment tomorrow at {chosen_slot['label']}. "
+                f"Address confirmation: {caller_address}. Questions? Reply here."
+            )
+
+            queue_rows: list[dict] = [
+                {
+                    "client_id": client_id,
+                    "type": "reminder",
+                    "to_number": caller_phone,
+                    "scheduled_for": reminder_at.isoformat(),
+                    "message_body": reminder_msg,
+                },
+            ]
+
+            google_review_link = client_config.get("google_review_link") or ""
+            if google_review_link:
+                review_msg = (
+                    f"Hi {caller_name}! Hope {business_name} took great care of you today. "
+                    f"Mind leaving a quick review? It means a lot: "
+                    f"https://g.page/{google_review_link}/review"
+                )
+            else:
+                review_msg = (
+                    f"Hi {caller_name}! Hope {business_name} took great care of you today. "
+                    f"We'd love your feedback — give us a call anytime!"
+                )
+            queue_rows.append({
+                "client_id": client_id,
+                "type": "review_request",
+                "to_number": caller_phone,
+                "scheduled_for": review_at.isoformat(),
+                "message_body": review_msg,
+            })
+
+            from backend.db.client import get_supabase as _get_sb
+            _get_sb().table("reminders_queue").insert(queue_rows).execute()
+            logger.info(
+                "Reminder queue entries created after booking",
+                client_id=client_id,
+                count=len(queue_rows),
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to queue post-booking reminders",
+                client_id=client_id,
+                error=str(exc),
+            )
 
     # Schedule as a background task — do not await it
     asyncio.create_task(asyncio.to_thread(_sms_and_db))

@@ -17,3 +17,4 @@ google-auth-oauthlib==1.2.0
 google-api-python-client==2.128.0
 twilio==9.0.4
 cryptography==42.0.5
+apscheduler==3.10.4

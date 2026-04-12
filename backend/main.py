@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from backend.routers import vapi_webhook, onboarding
+from backend.services.scheduler import setup_scheduler
 from backend.utils.logging import get_logger
 from backend.config import settings
 
@@ -31,7 +32,17 @@ async def _prewarm_openai() -> None:
 async def lifespan(app: FastAPI):
     logger.info("Starting AI Front-Desk Agent", env=settings.app_env)
     await _prewarm_openai()
+
+    scheduler = setup_scheduler(app)
+    scheduler.start()
+    logger.info(
+        "APScheduler started",
+        jobs=["reminders (5 min)", "review_requests (15 min)", "missed_call_recovery (2 min)"],
+    )
+
     yield
+
+    scheduler.shutdown(wait=False)
     logger.info("Shutting down")
 
 app = FastAPI(

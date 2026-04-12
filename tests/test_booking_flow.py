@@ -172,24 +172,40 @@ async def test_calendar_down_triggers_callback_offer(
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-@patch("backend.services.sms_service.TwilioClient")
 @patch("backend.db.client.get_supabase")
 @patch("backend.routers.vapi_webhook.get_supabase")
 @patch("backend.routers.vapi_webhook.verify_vapi_secret", return_value=True)
 async def test_missed_call_recovery_sent_on_hangup_without_booking(
-    mock_verify, mock_wb_db, mock_svc_db, mock_twilio_cls,
+    mock_verify, mock_wb_db, mock_svc_db,
 ):
-    """Call ended with no booking and duration > 15s → SMS sent."""
+    """Call ended with no booking and duration > 15s → recovery row queued in reminders_queue.
+
+    Phase 5: missed-call recovery is now queued (not sent immediately) so the
+    scheduler can fire it 2 minutes later.  We verify a reminders_queue insert
+    was attempted instead of a direct Twilio call.
+    """
     from backend.main import app
 
-    mock_wb_db.return_value = _make_supabase_mock(was_booked=False)
-    mock_svc_db.return_value = _make_supabase_mock(was_booked=False)
+    mock_supabase = _make_supabase_mock(was_booked=False)
+    # Track insert calls on reminders_queue table
+    queued_rows: list[dict] = []
 
-    mock_twilio = MagicMock()
-    mock_msg = MagicMock()
-    mock_msg.sid = "SM_recovery"
-    mock_twilio.messages.create.return_value = mock_msg
-    mock_twilio_cls.return_value = mock_twilio
+    original_side_effect = mock_supabase.table.side_effect
+
+    def _tracking_table(name: str):
+        tbl = original_side_effect(name)
+        if name == "reminders_queue":
+            def _capture_insert(data):
+                queued_rows.append(data)
+                m = MagicMock()
+                m.execute.return_value = MagicMock()
+                return m
+            tbl.insert.side_effect = _capture_insert
+        return tbl
+
+    mock_supabase.table.side_effect = _tracking_table
+    mock_wb_db.return_value = mock_supabase
+    mock_svc_db.return_value = mock_supabase
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         r = await ac.post("/webhook/vapi", json={
@@ -202,7 +218,11 @@ async def test_missed_call_recovery_sent_on_hangup_without_booking(
         })
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
-    mock_twilio.messages.create.assert_called_once()
+    # Verify that a missed_call_recovery row was queued (not sent immediately via Twilio)
+    assert any(
+        row.get("type") == "missed_call_recovery"
+        for row in queued_rows
+    ), f"Expected a missed_call_recovery row in reminders_queue, got: {queued_rows}"
 
 
 # ---------------------------------------------------------------------------

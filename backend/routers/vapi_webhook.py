@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from langchain_core.messages import AIMessage, HumanMessage
@@ -220,12 +221,51 @@ async def vapi_webhook(request: Request) -> dict:
                             if not client_id_for_sms:
                                 client_id_for_sms = str(client_res.data[0].get("id", ""))
 
-                        from backend.services import sms_service
-                        sms_service.send_missed_call_recovery(
-                            caller_number=phone_num,
-                            business_name=business_name,
-                            client_id=client_id_for_sms,
-                        )
+                        # Queue the missed-call recovery SMS via reminders_queue
+                        # (scheduler processes it within 2 minutes).
+                        # Requires a valid client_id — fall back to direct send if unknown.
+                        if client_id_for_sms:
+                            recovery_msg = (
+                                f"Hi! We missed your call at {business_name}. "
+                                f"Still need help? Reply here and we'll get back to you shortly."
+                            )
+                            scheduled_for = (
+                                datetime.now(timezone.utc) + timedelta(minutes=2)
+                            ).isoformat()
+                            try:
+                                supabase.table("reminders_queue").insert({
+                                    "client_id": client_id_for_sms,
+                                    "type": "missed_call_recovery",
+                                    "to_number": phone_num,
+                                    "scheduled_for": scheduled_for,
+                                    "message_body": recovery_msg,
+                                }).execute()
+                                logger.info(
+                                    "Missed-call recovery queued",
+                                    call_id=call_id,
+                                    scheduled_for=scheduled_for,
+                                )
+                            except Exception as exc:
+                                logger.error(
+                                    "Failed to queue missed-call recovery",
+                                    call_id=call_id,
+                                    error=str(exc),
+                                )
+                                # Fallback: send directly so caller is never left without follow-up
+                                from backend.services import sms_service
+                                sms_service.send_missed_call_recovery(
+                                    caller_number=phone_num,
+                                    business_name=business_name,
+                                    client_id=client_id_for_sms,
+                                )
+                        else:
+                            # No client_id — send directly (queue FK would fail)
+                            from backend.services import sms_service
+                            sms_service.send_missed_call_recovery(
+                                caller_number=phone_num,
+                                business_name=business_name,
+                                client_id=client_id_for_sms,
+                            )
                 except Exception as exc:
                     logger.error("Missed-call recovery failed", call_id=call_id, error=str(exc))
 

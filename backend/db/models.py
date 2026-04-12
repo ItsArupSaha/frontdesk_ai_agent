@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -61,3 +62,20 @@ class Booking(BaseModel):
     fsm_sync_error: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class ReminderQueueItem(BaseModel):
+    """Pydantic model for a row in the reminders_queue table."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str | None = None
+    client_id: str
+    booking_id: str | None = None
+    type: Literal["reminder", "review_request", "missed_call_recovery"]
+    to_number: str
+    scheduled_for: datetime
+    sent: bool = False
+    sent_at: datetime | None = None
+    message_body: str
+    created_at: datetime | None = None
