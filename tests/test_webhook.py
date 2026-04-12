@@ -58,7 +58,13 @@ async def test_emergency_keyword_triggers_transfer(mock_verify):
 @pytest.mark.asyncio
 async def test_normal_call_returns_text_response(mock_verify):
     body = {"message": {"type": "assistant-request", "call": {"id": "t", "phoneNumber": {"number": "1"}}, "conversation": [{"role": "user", "content": "Hello"}]}}
-    with patch("backend.routers.vapi_webhook.compiled_graph.ainvoke", new_callable=AsyncMock) as mock_ainvoke:
+    mock_sb = MagicMock()
+    mock_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = MagicMock(data=[])
+    mock_sb.table.return_value.upsert.return_value.execute.return_value = MagicMock(data=[])
+    with (
+        patch("backend.routers.vapi_webhook.compiled_graph.ainvoke", new_callable=AsyncMock) as mock_ainvoke,
+        patch("backend.routers.vapi_webhook.get_supabase", return_value=mock_sb),
+    ):
         mock_ainvoke.return_value = {"messages": [AIMessage(content="How can I help you today?")]}
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.post("/webhook/vapi", json=body, headers={"Authorization": "Bearer valid"})

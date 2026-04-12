@@ -267,6 +267,10 @@ async def vapi_webhook(request: Request) -> dict:
                         "services_offered": row["services_offered"],
                         "service_area_description": row["service_area_description"],
                         "is_active": row["is_active"],
+                        # FSM sync config (optional per client)
+                        "fsm_type": row.get("fsm_type"),
+                        "jobber_api_key": row.get("jobber_api_key") or "",
+                        "housecall_pro_api_key": row.get("housecall_pro_api_key") or "",
                     }
             except Exception as exc:
                 logger.warning("DB client lookup failed", error=str(exc))

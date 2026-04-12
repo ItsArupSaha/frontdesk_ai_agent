@@ -56,5 +56,8 @@ class Booking(BaseModel):
     google_event_id: str | None = None
     confirmation_sms_sent: bool = False
     status: str = "confirmed"
+    fsm_synced: bool = False
+    fsm_record_id: str | None = None
+    fsm_sync_error: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

@@ -136,11 +136,14 @@ def build_tools(client_config: dict, client_id: str = ""):
             problem_description: Description of the issue to be fixed.
         """
         import asyncio
+        from datetime import datetime
         from backend.services.calendar_service import (
             CalendarBookingError,
             book_appointment as cal_book,
         )
         from backend.services import sms_service
+        from backend.services import fsm_service
+        from backend.db.models import Booking
 
         slot = {"start": slot_start, "end": slot_end, "label": slot_label}
         caller_details = {
@@ -178,11 +181,80 @@ def build_tools(client_config: dict, client_id: str = ""):
             client_config=client_config,
         )
 
+        # Kick off FSM sync as a background coroutine (fire-and-forget, never raises)
+        try:
+            booking = Booking(
+                client_id=client_id,
+                caller_name=caller_name,
+                caller_phone=caller_phone,
+                caller_address=caller_address,
+                problem_description=problem_description,
+                appointment_start=datetime.fromisoformat(slot_start),
+                appointment_end=datetime.fromisoformat(slot_end),
+            )
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(
+                fsm_service.sync_booking_to_fsm(booking, client_config)
+            )
+        except Exception as exc:
+            logger.error("FSM sync dispatch failed", client_id=client_id, error=str(exc))
+
         return (
             f"Perfect! I've booked you in for {slot_label}. "
             "You'll receive a text confirmation shortly. "
             "Is there anything else I can help with?"
         )
+
+    @tool
+    def create_fsm_record(
+        caller_name: str,
+        caller_phone: str,
+        caller_address: str,
+        problem_description: str,
+        appointment_start: str,
+        appointment_end: str,
+    ) -> str:
+        """Sync a confirmed booking to the client's field service management system.
+
+        Calls Jobber or Housecall Pro depending on the client's configuration.
+        This is best-effort — failure does not affect the booking confirmation.
+
+        Args:
+            caller_name: Customer's full name.
+            caller_phone: Customer's phone number in E.164 format.
+            caller_address: Service address.
+            problem_description: Description of the work requested.
+            appointment_start: ISO datetime string for appointment start.
+            appointment_end: ISO datetime string for appointment end.
+        """
+        import asyncio
+        from datetime import datetime
+        from backend.services import fsm_service
+        from backend.db.models import Booking
+
+        fsm_type = client_config.get("fsm_type")
+        if not fsm_type:
+            return "No FSM configured for this client — skipping sync."
+
+        try:
+            booking = Booking(
+                client_id=client_id,
+                caller_name=caller_name,
+                caller_phone=caller_phone,
+                caller_address=caller_address,
+                problem_description=problem_description,
+                appointment_start=datetime.fromisoformat(appointment_start),
+                appointment_end=datetime.fromisoformat(appointment_end),
+            )
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(
+                fsm_service.sync_booking_to_fsm(booking, client_config)
+            )
+        except Exception as exc:
+            logger.error("create_fsm_record tool failed", client_id=client_id, error=str(exc))
+            return f"FSM sync encountered an error: {exc}"
+
+        return f"Booking synced to {fsm_type} successfully."
 
     @tool
     def request_callback(caller_name: str, caller_phone: str, reason: str) -> str:
@@ -215,4 +287,5 @@ def build_tools(client_config: dict, client_id: str = ""):
         check_calendar,
         book_appointment,
         request_callback,
+        create_fsm_record,
     ]
