@@ -462,19 +462,17 @@ async def vapi_webhook(request: Request) -> dict:
             logger.error("Failed to save conversation state", error=str(exc))
 
         # 5. Update call_log flags based on graph outcome (best-effort, non-blocking).
+        # IMPORTANT: was_booked is intentionally NOT set here. It is set by the background
+        # _sms_and_db() task in booking_node ONLY after the booking row is confirmed in the DB.
+        # Setting it here from graph state (before the insert completes) causes was_booked=True
+        # in call_logs even when the bookings insert fails in the background task.
         is_emergency_result = result_state.get("is_emergency", False)
-        is_booked_result = result_state.get("booking_complete", False)
-        if is_emergency_result or is_booked_result:
+        if is_emergency_result:
             try:
-                update_payload: dict = {}
-                if is_emergency_result:
-                    update_payload["was_emergency"] = True
-                if is_booked_result:
-                    update_payload["was_booked"] = True
                 await loop.run_in_executor(
                     None,
                     lambda: supabase.table("call_logs")
-                    .update(update_payload)
+                    .update({"was_emergency": True})
                     .eq("call_id", call_id)
                     .execute(),
                 )
