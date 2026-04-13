@@ -1,6 +1,7 @@
 """
 Dashboard API routes — all require a valid Supabase JWT.
 
+GET  /api/auth/me              → current user identity (is_admin flag)
 GET  /api/dashboard/overview   → summary metrics for the client
 GET  /api/dashboard/calls      → paginated call log
 GET  /api/dashboard/bookings   → bookings in a date range
@@ -21,9 +22,13 @@ from pydantic import BaseModel
 
 from backend.db.client import get_supabase
 from backend.utils.logging import get_logger
+from backend.utils.auth import get_current_user as _get_current_user, is_admin as _is_admin
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+# Separate router for auth-level endpoints (no /api/dashboard prefix).
+auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -64,6 +69,36 @@ async def _require_auth(
     except Exception as exc:
         logger.warning("JWT verification failed", error=str(exc))
         raise HTTPException(status_code=401, detail="Token verification failed")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/auth/me — identity endpoint (no client_id needed)
+# ---------------------------------------------------------------------------
+
+
+@auth_router.get("/me")
+async def get_me(
+    user: dict = Depends(_get_current_user),
+) -> dict[str, Any]:
+    """Return the current user's identity and role.
+
+    Used by the frontend AuthContext to determine whether to show the
+    admin panel or the client dashboard — without needing a clients row.
+
+    Admins are identified via the `admins` table. Clients have a row in
+    `clients` but no row in `admins`. The two are mutually exclusive.
+
+    Returns:
+        user_id: Supabase auth user UUID.
+        email: User's email from auth.
+        is_admin: True if the user is in the admins table.
+    """
+    admin = await _is_admin(user["sub"])
+    return {
+        "user_id": user["sub"],
+        "email": user.get("email"),
+        "is_admin": admin,
+    }
 
 
 # ---------------------------------------------------------------------------

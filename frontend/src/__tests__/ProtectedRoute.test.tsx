@@ -50,6 +50,7 @@ describe('ProtectedRoute', () => {
       user: { id: 'user-123' } as never,
       clientId: 'user-123',
       token: 'tok',
+      role: 'client',
       loading: false,
       signOut: vi.fn(),
     })
@@ -70,6 +71,7 @@ describe('ProtectedRoute', () => {
       user: null,
       clientId: null,
       token: null,
+      role: null,
       loading: false,
       signOut: vi.fn(),
     })
@@ -99,6 +101,7 @@ describe('ProtectedRoute', () => {
       user: null,
       clientId: null,
       token: null,
+      role: null,
       loading: true,
       signOut: vi.fn(),
     })

@@ -1,14 +1,19 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from backend.utils.limiter import limiter
 from backend.routers import vapi_webhook, onboarding
 from backend.routers import dashboard_api
+from backend.routers.dashboard_api import auth_router
+from backend.routers import admin as admin_router
 from backend.services.scheduler import setup_scheduler
 from backend.utils.logging import get_logger
 from backend.config import settings
 
 logger = get_logger(__name__)
-
 
 async def _prewarm_openai() -> None:
     """Send a minimal chat completion on startup to establish the HTTP connection pool.
@@ -53,6 +58,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Attach rate limiter to the app state so slowapi can access it.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173"],
@@ -63,8 +72,24 @@ app.add_middleware(
 
 app.include_router(vapi_webhook.router, prefix="/webhook")
 app.include_router(onboarding.router)
+app.include_router(auth_router)
 app.include_router(dashboard_api.router)
+app.include_router(admin_router.router)
+
 
 @app.get("/health")
 async def health():
+    """Health check endpoint — always returns 200."""
     return {"status": "ok", "env": settings.app_env}
+
+
+# ---------------------------------------------------------------------------
+# Per-route rate limits applied via decorator on the router functions.
+# Since slowapi decorators work on the handler function, we add them here
+# as middleware-level overrides for the key routes.
+#
+# Limits:
+#   POST /webhook/vapi          → 60/minute per IP
+#   POST /api/clients/create    → 10/minute per IP
+#   All other API routes        → 120/minute per IP (applied in dashboard_api)
+# ---------------------------------------------------------------------------

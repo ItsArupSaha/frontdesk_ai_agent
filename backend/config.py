@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     twilio_auth_token: str = ""
     twilio_from_number: str = ""
 
+    # Vapi webhook base URL — used when provisioning new Vapi assistants.
+    # In production: your Railway / Render domain (https://your-app.railway.app)
+    # In local dev:  your ngrok URL (https://xxxx.ngrok.io)
+    vapi_webhook_base_url: str = "http://localhost:8000"
+
     model_config = SettingsConfigDict(env_file=os.path.join(Path(__file__).parent, ".env"), env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

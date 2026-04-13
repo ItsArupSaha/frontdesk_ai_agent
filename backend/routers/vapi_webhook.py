@@ -11,6 +11,7 @@ from typing import Optional, List
 
 from backend.config import settings
 from backend.utils.logging import get_logger
+from backend.utils.limiter import limiter
 from backend.agents.graph import compiled_graph
 from backend.db.client import get_supabase
 
@@ -90,6 +91,7 @@ def verify_vapi_secret(request: Request, raw_body: bytes) -> bool:
 # ---------------------------------------------------------------------------
 
 @router.post("/vapi")
+@limiter.limit("60/minute")
 async def vapi_webhook(request: Request) -> dict:
     """Handle all inbound Vapi webhook events.
 
@@ -288,33 +290,46 @@ async def vapi_webhook(request: Request) -> dict:
         # supabase-py is a synchronous client — wrapping each call in
         # run_in_executor prevents it from blocking the async event loop,
         # and gather() runs both DB round-trips concurrently.
+        #
+        # CONFIG CACHING: client_config is loaded from DB on the FIRST turn of a
+        # call (when conversation_state has no cached config) and stored in the
+        # conversation_state as a __client_config__ sentinel message entry.
+        # Subsequent turns read config from this cache — never re-read from DB
+        # mid-call. This ensures settings changes take effect on the NEXT call,
+        # not mid-conversation, preventing inconsistent conversation state.
+
         def _db_client_config() -> dict | None:
+            """Load client config from DB by Twilio phone number or fallback to first active client."""
             try:
-                res = (
-                    supabase.table("clients")
-                    .select("*")
-                    .eq("business_name", "Test Plumbing Co")
-                    .limit(1)
-                    .execute()
-                )
+                # Match by Twilio phone number if available — multi-tenant routing.
+                query = supabase.table("clients").select("*")
+                if phone_num:
+                    res = query.eq("twilio_phone_number", phone_num).limit(1).execute()
+                    if res.data:
+                        row = res.data[0]
+                        return _row_to_config(row)
+                # Fallback: first active client (dev/single-tenant mode).
+                res = query.eq("is_active", True).limit(1).execute()
                 if res.data:
-                    row = res.data[0]
-                    return {
-                        "id": str(row["id"]),
-                        "business_name": row["business_name"],
-                        "emergency_phone_number": row["emergency_phone_number"],
-                        "working_hours": row["working_hours"],
-                        "services_offered": row["services_offered"],
-                        "service_area_description": row["service_area_description"],
-                        "is_active": row["is_active"],
-                        # FSM sync config (optional per client)
-                        "fsm_type": row.get("fsm_type"),
-                        "jobber_api_key": row.get("jobber_api_key") or "",
-                        "housecall_pro_api_key": row.get("housecall_pro_api_key") or "",
-                    }
+                    return _row_to_config(res.data[0])
             except Exception as exc:
                 logger.warning("DB client lookup failed", error=str(exc))
             return None
+
+        def _row_to_config(row: dict) -> dict:
+            """Map a clients DB row to the client_config dict used by the agent."""
+            return {
+                "id": str(row["id"]),
+                "business_name": row["business_name"],
+                "emergency_phone_number": row["emergency_phone_number"],
+                "working_hours": row.get("working_hours") or {},
+                "services_offered": row.get("services_offered") or [],
+                "service_area_description": row.get("service_area_description") or "",
+                "is_active": row.get("is_active", True),
+                "fsm_type": row.get("fsm_type"),
+                "jobber_api_key": row.get("jobber_api_key") or "",
+                "housecall_pro_api_key": row.get("housecall_pro_api_key") or "",
+            }
 
         def _db_conversation_state() -> dict:
             default: dict = {"current_node": "greeting", "is_emergency": False}
@@ -328,16 +343,25 @@ async def vapi_webhook(request: Request) -> dict:
                 )
                 if res.data:
                     row = res.data[0]
-                    # Recover persisted available_slots from sentinel message entry
+                    import json as _json
+                    # Recover persisted available_slots and cached client_config
+                    # from sentinel message entries. Sentinel roles:
+                    #   __slots__        → available time slots (JSON array)
+                    #   __client_config__ → client config cached at call start (JSON object)
                     available_slots: list = []
+                    cached_config: dict | None = None
                     for msg in row.get("messages") or []:
-                        if msg.get("role") == "__slots__":
-                            import json as _json
+                        role = msg.get("role")
+                        if role == "__slots__":
                             try:
                                 available_slots = _json.loads(msg.get("content", "[]"))
                             except Exception:
                                 available_slots = []
-                            break
+                        elif role == "__client_config__":
+                            try:
+                                cached_config = _json.loads(msg.get("content", "{}"))
+                            except Exception:
+                                cached_config = None
                     return {
                         "current_node": row.get("current_node", "greeting"),
                         "is_emergency": row.get("is_emergency", False),
@@ -348,23 +372,28 @@ async def vapi_webhook(request: Request) -> dict:
                         "collection_complete": row.get("collection_complete", False),
                         "booking_complete": row.get("booking_complete", False),
                         "available_slots": available_slots,
+                        "cached_client_config": cached_config,
                     }
             except Exception as exc:
                 logger.warning("State lookup failed", error=str(exc))
             return default
 
-        client_config_raw, state_data = await asyncio.gather(
+        client_config_from_db, state_data = await asyncio.gather(
             loop.run_in_executor(None, _db_client_config),
             loop.run_in_executor(None, _db_conversation_state),
         )
 
-        client_config: dict = client_config_raw or {
-            "id": "123",
-            "business_name": "Test Plumbing Co",
+        # Config intentionally cached at call start — settings changes take effect
+        # on the NEXT call, not mid-conversation. Read from conversation_state cache
+        # on subsequent turns; only hit the DB on the first turn of each call.
+        cached_config = state_data.get("cached_client_config")
+        client_config: dict = cached_config or client_config_from_db or {
+            "id": "unknown",
+            "business_name": "Our Business",
             "emergency_phone_number": "+15550000000",
             "working_hours": {},
-            "services_offered": ["plumbing"],
-            "service_area_description": "New York",
+            "services_offered": [],
+            "service_area_description": "",
             "is_active": True,
         }
 
@@ -445,11 +474,17 @@ async def vapi_webhook(request: Request) -> dict:
                 }
                 for m in result_state["messages"]
             ] + (
-                # Sentinel entry to persist available_slots across webhook turns
+                # Sentinel: persist available_slots across webhook turns
                 [{"role": "__slots__", "content": __import__("json").dumps(result_state.get("available_slots", []))}]
                 if result_state.get("available_slots")
                 else []
-            ),
+            ) + [
+                # Sentinel: cache client_config at call start so settings changes
+                # mid-call don't affect the current conversation.
+                # Config intentionally cached at call start — settings changes
+                # take effect on the NEXT call, not mid-call.
+                {"role": "__client_config__", "content": __import__("json").dumps(client_config)}
+            ],
         }
         try:
             await loop.run_in_executor(

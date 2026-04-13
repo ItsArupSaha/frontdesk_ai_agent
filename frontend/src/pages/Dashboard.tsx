@@ -12,8 +12,14 @@ import MetricCard from '../components/MetricCard'
 import StatusBadge from '../components/StatusBadge'
 import LoadingSpinner from '../components/LoadingSpinner'
 
-export default function Dashboard() {
-  const { token, clientId } = useAuth()
+interface Props {
+  /** When set by admin impersonation, use this client_id instead of the auth user's own. */
+  overrideClientId?: string
+}
+
+export default function Dashboard({ overrideClientId }: Props = {}) {
+  const { token, clientId: authClientId } = useAuth()
+  const clientId = overrideClientId ?? authClientId
   const [liveCallCount, setLiveCallCount] = useState<number | null>(null)
 
   const overviewQuery = useQuery<OverviewMetrics>({

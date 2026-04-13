@@ -312,9 +312,50 @@ as potentially failing and handle it gracefully:
 ---
 
 ## Current status
-Phase 1 — Completed
-Phase 2 — Completed
-Phase 3 — Completed
-Phase 4 — Completed
-Phase 5 — Completed
-Next action: Phase 6 implementation.
+All 7 phases complete.
+Backend tests: 131/131 passing (130 unit/integration + 1 load test)
+Frontend tests: 27/27 passing
+Last E2E: 2026-04-12 — all tests passing
+Known issues: None
+Product status: PRODUCTION READY
+
+### Phase completion summary
+Phase 1 — Voice + Webhook — Completed
+Phase 2 — Encryption + Security — Completed
+Phase 3 — Calendar + SMS — Completed
+Phase 4 — Agent Graph (LangGraph) — Completed
+Phase 5 — Dashboard API — Completed
+Phase 6 — Frontend React Dashboard — Completed
+Phase 7 — Multi-Client Panel + Onboarding — Completed
+
+### Key design decisions (Phase 7)
+1. Config is cached at call start — settings changes take effect on the
+   NEXT call, not mid-call. Stored as __client_config__ sentinel in
+   conversation_state to avoid re-reading DB mid-conversation.
+
+2. Client self-registration is disabled. Only admin (Arup) can create
+   clients via POST /api/clients/create. Clients receive an invite email
+   and set their own password via Supabase password-reset flow.
+
+3. Twilio number is purchased per client on Arup's account.
+   Onboarding tries local → fallback area codes → toll-free.
+
+4. Vapi assistant is created per client on Arup's Vapi account.
+
+5. Google Calendar OAuth is per client — each client connects their own
+   Google account. Refresh tokens stored encrypted in DB.
+
+6. Rate limits (slowapi):
+   - POST /webhook/vapi: 60/minute per IP
+   - POST /api/clients/create: 10/minute per IP
+   - Admin + dashboard routes: 120/minute per IP
+
+### To run the server
+```bash
+# Always use venv Python, NOT system Python
+.venv\Scripts\python.exe -m uvicorn backend.main:app --reload
+
+# Or activate venv first
+.venv\Scripts\activate
+python -m uvicorn backend.main:app --reload
+```

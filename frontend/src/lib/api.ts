@@ -96,6 +96,58 @@ export interface ClientSettings {
   updated_at: string
 }
 
+export interface MeResponse {
+  user_id: string
+  email: string | null
+  is_admin: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Admin types
+// ---------------------------------------------------------------------------
+
+export interface AdminClientSummary {
+  id: string
+  business_name: string
+  email: string | null
+  is_active: boolean
+  calls_this_month: number
+  last_call_at: string | null
+  bookings_this_month: number
+  monthly_cost_estimate: number
+}
+
+export interface ClientCreatePayload {
+  business_name: string
+  email: string
+  emergency_phone: string
+  services_offered: string[]
+  working_hours: Record<string, { open: string; close: string } | null>
+  service_area_description: string
+  zip_codes: string[]
+  area_code: string
+  pricing_ranges: Record<string, string>
+  fsm_type?: string | null
+  jobber_api_key?: string | null
+  housecall_pro_api_key?: string | null
+}
+
+export interface ClientCreateResponse {
+  client_id: string
+  phone_number: string
+  setup_complete: boolean
+  next_step: string
+  message: string
+}
+
+export interface ImpersonateResponse {
+  client_id: string
+  business_name: string
+  email: string | null
+  is_active: boolean
+  dashboard_url: string
+}
+
 export interface SettingsPayload {
   business_name?: string
   emergency_phone_number?: string
@@ -192,6 +244,46 @@ export function updateSettings(
 ): Promise<ClientSettings> {
   return apiFetch(`/api/dashboard/settings?client_id=${clientId}`, token, {
     method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getMe(token: string): Promise<MeResponse> {
+  return apiFetch('/api/auth/me', token)
+}
+
+// ---------------------------------------------------------------------------
+// Admin API functions
+// ---------------------------------------------------------------------------
+
+export function getAdminClients(token: string): Promise<AdminClientSummary[]> {
+  return apiFetch('/api/admin/clients', token)
+}
+
+export function updateClientStatus(
+  token: string,
+  clientId: string,
+  isActive: boolean,
+): Promise<{ client_id: string; is_active: boolean }> {
+  return apiFetch(`/api/admin/clients/${clientId}/status`, token, {
+    method: 'PUT',
+    body: JSON.stringify({ is_active: isActive }),
+  })
+}
+
+export function impersonateClient(
+  token: string,
+  clientId: string,
+): Promise<ImpersonateResponse> {
+  return apiFetch(`/api/admin/clients/${clientId}/impersonate`, token)
+}
+
+export function createClient(
+  token: string,
+  payload: ClientCreatePayload,
+): Promise<ClientCreateResponse> {
+  return apiFetch('/api/clients/create', token, {
+    method: 'POST',
     body: JSON.stringify(payload),
   })
 }
