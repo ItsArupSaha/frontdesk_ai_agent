@@ -131,6 +131,37 @@ def _try_extract_field(messages: list, field: str) -> str | None:
     return None
 
 
+def _is_in_service_area(address: str, service_area_description: str) -> bool:
+    """Keyword-based service area check.
+
+    Extracts significant location words from service_area_description and
+    checks whether any appear in the caller's address.  Falls back to True
+    (allow booking) if the description is empty or yields no usable keywords.
+
+    Returns True when the address appears to be within the service area,
+    False when it clearly does not match any covered location.
+    """
+    if not service_area_description or not address:
+        return True
+
+    # Words too generic to use as location identifiers
+    _STOP = {
+        "serving", "and", "the", "new", "of", "in", "area",
+        "service", "city", "our", "we", "cover", "coverage",
+    }
+    area_words = {
+        w.strip(",.").lower()
+        for w in service_area_description.split()
+        if len(w.strip(",.")) > 3 and w.strip(",.").lower() not in _STOP
+    }
+
+    if not area_words:
+        return True  # Cannot determine restriction — allow booking
+
+    address_lower = address.lower()
+    return any(word in address_lower for word in area_words)
+
+
 # ---------------------------------------------------------------------------
 # Existing Phase 1 nodes
 # ---------------------------------------------------------------------------
@@ -345,6 +376,24 @@ async def collect_info_node(state: AgentState) -> dict:
     # 2. Check if collection is complete.
     # ------------------------------------------------------------------
     if all([caller_name, caller_phone, caller_address, problem_description]):
+        # Service area check — run before advancing to booking so we never
+        # offer calendar slots to callers outside the coverage zone.
+        # collection_complete is intentionally NOT set here (stays False) so
+        # the graph edge routes to END and the call finishes gracefully.
+        service_area = state["client_config"].get("service_area_description", "")
+        if service_area and not _is_in_service_area(caller_address, service_area):
+            reply = AIMessage(
+                content=(
+                    "I'm sorry, but we don't currently service that area. "
+                    "We cover " + service_area + ". "
+                    "Feel free to call us back if you're ever in our coverage area — "
+                    "we'd love to help. Have a great day!"
+                )
+            )
+            updates["messages"] = [reply]
+            updates["current_node"] = "collect_info"  # stay here; call ends after this turn
+            return updates
+
         updates["collection_complete"] = True
         updates["current_node"] = "booking"
         reply = AIMessage(
@@ -411,6 +460,39 @@ async def booking_node(state: AgentState) -> dict:
     available_slots: list = state.get("available_slots") or []
 
     # ------------------------------------------------------------------
+    # 0. Check for cancellation or reschedule intent BEFORE slot matching.
+    #    This handles B3 (caller changes mind) and B8 (reschedule request).
+    #
+    #    Cancellation is checked unconditionally (booking_node may be entered
+    #    even when no cached slots exist — e.g. a follow-up "never mind" after
+    #    collection_complete was set).
+    #    Reschedule is only relevant when slots have already been offered.
+    # ------------------------------------------------------------------
+    _CANCEL_PHRASES = [
+        "never mind", "nevermind", "cancel", "forget it",
+        "don't worry", "no thanks", "i'll call back", "call back later",
+        "call you back", "not anymore", "changed my mind",
+    ]
+    _RESCHEDULE_PHRASES = [
+        "next week", "different day", "another day", "different time",
+        "not this week", "later in the week", "reschedule",
+        "change the day", "change the time",
+    ]
+    last_msg_for_intent = (_last_user_message(messages) or "").lower()
+    # Cancellation — always checked so "never mind" works at any booking stage
+    if any(phrase in last_msg_for_intent for phrase in _CANCEL_PHRASES):
+        reply = AIMessage(
+            content=(
+                "No problem at all! Feel free to call us back whenever you're ready. "
+                "Have a great day!"
+            )
+        )
+        return {"messages": [reply], "current_node": "booking"}
+    # Reschedule — only clear slots if we already offered some
+    if available_slots and any(phrase in last_msg_for_intent for phrase in _RESCHEDULE_PHRASES):
+        available_slots = []
+
+    # ------------------------------------------------------------------
     # 1. No slots yet — fetch from Google Calendar.
     # ------------------------------------------------------------------
     if not available_slots:
@@ -418,7 +500,7 @@ async def booking_node(state: AgentState) -> dict:
         last_user = _last_user_message(messages) or ""
         date_preference = "this week"
         for pref in ("today", "tomorrow", "monday", "tuesday", "wednesday",
-                     "thursday", "friday", "saturday"):
+                     "thursday", "friday", "saturday", "next week"):
             if pref in last_user.lower():
                 date_preference = pref
                 break

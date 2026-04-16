@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from langchain_core.messages import AIMessage, HumanMessage
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from typing import Optional, List
 
 from backend.config import settings
@@ -34,7 +34,10 @@ class Call(BaseModel):
 
 class Message(BaseModel):
     role: str
-    content: str
+    # 10 000-char limit per message turn: prevents runaway LLM token spend and
+    # server abuse from oversized payloads. Vapi transcripts are never this long
+    # in practice (phone calls max out at ~200 words/minute ≈ ~1 000 chars/min).
+    content: str = Field("", max_length=10_000)
 
 
 class VapiMessageContent(BaseModel):
@@ -302,14 +305,15 @@ async def vapi_webhook(request: Request) -> dict:
             """Load client config from DB by Twilio phone number or fallback to first active client."""
             try:
                 # Match by Twilio phone number if available — multi-tenant routing.
-                query = supabase.table("clients").select("*")
+                # Use a fresh query builder for each call — older supabase-py versions
+                # (≤2.15) mutate the builder in place, so reusing `query` would stack
+                # filters and silently return empty on the fallback path.
                 if phone_num:
-                    res = query.eq("twilio_phone_number", phone_num).limit(1).execute()
+                    res = supabase.table("clients").select("*").eq("twilio_phone_number", phone_num).limit(1).execute()
                     if res.data:
-                        row = res.data[0]
-                        return _row_to_config(row)
+                        return _row_to_config(res.data[0])
                 # Fallback: first active client (dev/single-tenant mode).
-                res = query.eq("is_active", True).limit(1).execute()
+                res = supabase.table("clients").select("*").eq("is_active", True).limit(1).execute()
                 if res.data:
                     return _row_to_config(res.data[0])
             except Exception as exc:
