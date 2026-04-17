@@ -48,3 +48,46 @@ body {
   background: rgba(124, 58, 237, 0.3);
   color: #ffffff;
 }
+
+.task-feed-mask {
+  position: relative;
+}
+
+.task-feed-mask::before,
+.task-feed-mask::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.task-feed-mask::before {
+  top: 0;
+  background: linear-gradient(to bottom, rgba(10, 10, 14, 0.98), rgba(10, 10, 14, 0));
+}
+
+.task-feed-mask::after {
+  bottom: 0;
+  background: linear-gradient(to top, rgba(10, 10, 14, 0.98), rgba(10, 10, 14, 0));
+}
+
+.task-feed-track {
+  animation: task-feed-scroll 22s linear infinite;
+}
+
+.task-feed-mask:hover .task-feed-track {
+  animation-play-state: paused;
+}
+
+@keyframes task-feed-scroll {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(0, -50%, 0);
+  }
+}

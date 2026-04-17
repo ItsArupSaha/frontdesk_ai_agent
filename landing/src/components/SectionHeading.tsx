@@ -23,7 +23,7 @@ export function SectionHeading({
   return (
     <motion.div
       className={cn(
-        "mx-auto mb-14 max-w-3xl",
+        "mx-auto mb-4 max-w-3xl",
         centered ? "text-center" : "text-left",
         className,
       )}
