@@ -1,10 +1,11 @@
 import { motion } from "framer-motion";
+import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "../lib/motion";
 
 type SectionHeadingProps = {
   eyebrow: string;
-  title: string;
+  title: ReactNode;
   description?: string;
   align?: "left" | "center";
   className?: string;
