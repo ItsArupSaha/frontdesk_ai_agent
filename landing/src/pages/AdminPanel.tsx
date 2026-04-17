@@ -6,7 +6,7 @@ import { LoadingSpinner } from "../components/LoadingSpinner";
 import { DashboardPage } from "./Dashboard";
 
 export function AdminPanelPage() {
-  const { role, token, loading: authLoading } = useAuth();
+  const { role, token, loading: authLoading, signOut } = useAuth();
   const navigate = useNavigate();
   const [clients, setClients] = useState<AdminClientSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +62,11 @@ export function AdminPanelPage() {
     }
   }
 
+  async function handleSignOut() {
+    await signOut();
+    navigate("/", { replace: true });
+  }
+
   if (authLoading || role === null) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#06050a]">
@@ -102,6 +107,26 @@ export function AdminPanelPage() {
             <p className="text-xs uppercase tracking-[0.3em] text-white/45">Admin</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-[-0.05em]">Client Management</h1>
             <p className="mt-2 text-sm text-white/55">Manage all clients from one place.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate("/admin/onboarding")}
+              className="rounded-full border border-violet-400/25 bg-violet-500/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-violet-100"
+            >
+              Add Client
+            </button>
+            <a
+              href="/landing"
+              className="rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-white/75"
+            >
+              Landing
+            </a>
+            <button
+              onClick={() => void handleSignOut()}
+              className="rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-white/75"
+            >
+              Logout
+            </button>
           </div>
         </div>
 

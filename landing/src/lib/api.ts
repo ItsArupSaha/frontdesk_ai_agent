@@ -25,7 +25,63 @@ export interface CallLog {
 }
 
 export interface AnalyticsData {
-  calls_per_day: Array<{ date: string; count: number }>;
+  calls_per_day: DailyCount[];
+  bookings_per_day: DailyCount[];
+  calls_by_hour: HourlyCount[];
+  emergency_rate: number;
+  period_days: number;
+}
+
+export interface CallsResponse {
+  calls: CallLog[];
+  offset: number;
+  limit: number;
+  count: number;
+}
+
+export interface Booking {
+  id: string;
+  caller_name: string;
+  caller_phone: string;
+  caller_address: string;
+  problem_description: string;
+  appointment_start: string;
+  appointment_end: string;
+  status: string;
+  confirmation_sms_sent: boolean;
+  fsm_synced: boolean;
+  created_at: string;
+}
+
+export interface BookingsResponse {
+  bookings: Booking[];
+  count: number;
+}
+
+export interface DailyCount {
+  date: string;
+  count: number;
+}
+
+export interface HourlyCount {
+  hour: number;
+  count: number;
+}
+
+export interface ClientSettings {
+  id: string;
+  business_name: string;
+  emergency_phone_number: string;
+  working_hours: Record<string, string>;
+  services_offered: string[];
+  service_area_description: string;
+  google_review_link: string | null;
+  vapi_assistant_id: string | null;
+  twilio_phone_number: string | null;
+  is_active: boolean;
+  fsm_type: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface MeResponse {
@@ -51,6 +107,40 @@ export interface ImpersonateResponse {
   email: string | null;
   is_active: boolean;
   dashboard_url: string;
+}
+
+export interface ClientCreatePayload {
+  business_name: string;
+  email: string;
+  emergency_phone: string;
+  services_offered: string[];
+  working_hours: Record<string, { open: string; close: string } | null>;
+  service_area_description: string;
+  zip_codes: string[];
+  area_code: string;
+  pricing_ranges: Record<string, string>;
+  fsm_type?: string | null;
+  jobber_api_key?: string | null;
+  housecall_pro_api_key?: string | null;
+}
+
+export interface ClientCreateResponse {
+  client_id: string;
+  phone_number: string;
+  setup_complete: boolean;
+  next_step: string;
+  message: string;
+}
+
+export interface SettingsPayload {
+  business_name?: string;
+  emergency_phone_number?: string;
+  working_hours?: Record<string, string>;
+  services_offered?: string[];
+  service_area_description?: string;
+  google_review_link?: string;
+  jobber_api_key?: string;
+  housecall_pro_api_key?: string;
 }
 
 async function apiFetch<T>(path: string, token: string, options?: RequestInit): Promise<T> {
@@ -82,12 +172,35 @@ export function getOverview(token: string, clientId: string): Promise<OverviewMe
 export function getCalls(
   token: string,
   clientId: string,
-  params: { limit?: number; offset?: number } = {},
-): Promise<{ calls: CallLog[] }> {
+  params: {
+    limit?: number;
+    offset?: number;
+    emergency_only?: boolean;
+    booked_only?: boolean;
+    start?: string;
+    end?: string;
+  } = {},
+): Promise<CallsResponse> {
   const query = new URLSearchParams({ client_id: clientId });
   if (params.limit != null) query.set("limit", String(params.limit));
   if (params.offset != null) query.set("offset", String(params.offset));
+  if (params.emergency_only) query.set("emergency_only", "true");
+  if (params.booked_only) query.set("booked_only", "true");
+  if (params.start) query.set("start", params.start);
+  if (params.end) query.set("end", params.end);
   return apiFetch(`/api/dashboard/calls?${query.toString()}`, token);
+}
+
+export function getBookings(
+  token: string,
+  clientId: string,
+  start?: string,
+  end?: string,
+): Promise<BookingsResponse> {
+  const query = new URLSearchParams({ client_id: clientId });
+  if (start) query.set("start", start);
+  if (end) query.set("end", end);
+  return apiFetch(`/api/dashboard/bookings?${query.toString()}`, token);
 }
 
 export function getAnalytics(
@@ -118,4 +231,41 @@ export function impersonateClient(
   clientId: string,
 ): Promise<ImpersonateResponse> {
   return apiFetch(`/api/admin/clients/${clientId}/impersonate`, token);
+}
+
+export function getSettings(token: string, clientId: string): Promise<ClientSettings> {
+  return apiFetch(`/api/dashboard/settings?client_id=${clientId}`, token);
+}
+
+export function updateSettings(
+  token: string,
+  clientId: string,
+  payload: SettingsPayload,
+): Promise<ClientSettings> {
+  return apiFetch(`/api/dashboard/settings?client_id=${clientId}`, token, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function createClient(
+  token: string,
+  payload: ClientCreatePayload,
+): Promise<ClientCreateResponse> {
+  return apiFetch("/api/clients/create", token, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateBookingStatus(
+  token: string,
+  clientId: string,
+  bookingId: string,
+  status: "confirmed" | "completed" | "cancelled",
+): Promise<Booking> {
+  const query = new URLSearchParams({ client_id: clientId, status });
+  return apiFetch(`/api/dashboard/bookings/${bookingId}?${query.toString()}`, token, {
+    method: "PATCH",
+  });
 }
