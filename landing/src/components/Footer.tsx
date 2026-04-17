@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { fadeUp, viewportOnce } from "../lib/motion";
+import { SectionParticleLayer } from "./SectionParticleLayer";
 
 const columns = [
   {
@@ -24,9 +25,10 @@ export function Footer() {
       whileInView="visible"
       viewport={viewportOnce}
       variants={fadeUp}
-      className="border-t border-[var(--border-muted)] bg-[linear-gradient(180deg,rgba(15,8,24,0.18),rgba(0,0,0,0))] px-4 pb-8 pt-16 sm:px-6 lg:px-8"
+      className="relative isolate overflow-hidden border-t border-[var(--border-muted)] bg-[linear-gradient(180deg,rgba(15,8,24,0.18),rgba(0,0,0,0))] px-4 pb-8 pt-16 sm:px-6 lg:px-8"
     >
-      <div className="mx-auto max-w-[1240px]">
+      <SectionParticleLayer glowClassName="bg-[radial-gradient(circle_at_top,rgba(124,58,237,0.08),transparent_40%)]" />
+      <div className="relative z-10 mx-auto max-w-[1240px]">
         <div className="grid gap-10 border-b border-[var(--border-muted)] pb-10 md:grid-cols-[1.2fr_1.8fr]">
           <div>
             <div className="flex items-center gap-3">

@@ -13,17 +13,19 @@ type Particle = {
 type ParticleFieldProps = {
   className?: string;
   mode?: "inward" | "ambient";
+  count?: number;
 };
 
 const PARTICLE_COUNT = 180;
-const AMBIENT_PARTICLE_COUNT = 1000;
+const AMBIENT_PARTICLE_COUNT = 140;
+const AMBIENT_TARGET_FPS = 30;
 
 /**
  * Subtle white particles that drift slowly inward toward the centre.
  * They reset from the edges when they get close enough to centre,
  * creating a continuous soft inward-flow effect matching the screenshot.
  */
-export function ParticleField({ className, mode = "inward" }: ParticleFieldProps) {
+export function ParticleField({ className, mode = "inward", count }: ParticleFieldProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -37,6 +39,8 @@ export function ParticleField({ className, mode = "inward" }: ParticleFieldProps
     let H = 0;
     let cx = 0;
     let cy = 0;
+    let lastFrameTime = 0;
+    let isVisible = true;
     const particles: Particle[] = [];
     const isAmbient = mode === "ambient";
 
@@ -79,7 +83,7 @@ export function ParticleField({ className, mode = "inward" }: ParticleFieldProps
       const parent = canvas.parentElement;
       if (!parent) return;
       const bounds = parent.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = isAmbient ? 1 : (window.devicePixelRatio || 1);
       W = Math.floor(bounds.width);
       H = Math.floor(bounds.height);
       cx = W * 0.5;
@@ -91,15 +95,30 @@ export function ParticleField({ className, mode = "inward" }: ParticleFieldProps
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       if (particles.length === 0) {
-        const count = isAmbient ? AMBIENT_PARTICLE_COUNT : PARTICLE_COUNT;
-        for (let i = 0; i < count; i++) {
+        const particleCount = isAmbient ? (count ?? AMBIENT_PARTICLE_COUNT) : PARTICLE_COUNT;
+        for (let i = 0; i < particleCount; i++) {
           particles.push(isAmbient ? spawnAmbient() : spawnRandom());
         }
       }
     };
 
-    const render = () => {
+    const render = (time: number) => {
+      if (isAmbient && !isVisible) {
+        raf = 0;
+        return;
+      }
+
+      if (isAmbient) {
+        const frameInterval = 1000 / AMBIENT_TARGET_FPS;
+        if (time - lastFrameTime < frameInterval) {
+          raf = requestAnimationFrame(render);
+          return;
+        }
+        lastFrameTime = time;
+      }
+
       ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = "#ffffff";
 
       for (const p of particles) {
         if (isAmbient) {
@@ -141,7 +160,6 @@ export function ParticleField({ className, mode = "inward" }: ParticleFieldProps
           }
         }
 
-        ctx.fillStyle = "#ffffff";
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
@@ -150,15 +168,30 @@ export function ParticleField({ className, mode = "inward" }: ParticleFieldProps
       raf = requestAnimationFrame(render);
     };
 
+    const intersectionObserver = isAmbient
+      ? new IntersectionObserver(
+          ([entry]) => {
+            isVisible = entry?.isIntersecting ?? false;
+            if (isVisible && !raf) {
+              lastFrameTime = 0;
+              raf = requestAnimationFrame(render);
+            }
+          },
+          { threshold: 0.01 },
+        )
+      : null;
+
     resize();
-    render();
+    intersectionObserver?.observe(canvas);
+    raf = requestAnimationFrame(render);
     window.addEventListener("resize", resize);
 
     return () => {
+      intersectionObserver?.disconnect();
       window.removeEventListener("resize", resize);
       cancelAnimationFrame(raf);
     };
-  }, [mode]);
+  }, [count, mode]);
 
   return <canvas ref={canvasRef} className={className} aria-hidden="true" />;
 }

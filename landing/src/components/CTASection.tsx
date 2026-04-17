@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { buttonHover, fadeUp, viewportOnce } from "../lib/motion";
+import { SectionParticleLayer } from "./SectionParticleLayer";
 
 export function CTASection() {
   return (
@@ -10,9 +11,10 @@ export function CTASection() {
       whileInView="visible"
       viewport={viewportOnce}
       variants={fadeUp}
-      className="px-4 py-20 sm:px-6 lg:px-8"
+      className="relative isolate overflow-hidden px-4 py-20 sm:px-6 lg:px-8"
     >
-      <div className="mx-auto max-w-[1240px]">
+      <SectionParticleLayer glowClassName="bg-[radial-gradient(circle_at_center,rgba(124,58,237,0.14),transparent_42%)]" />
+      <div className="relative z-10 mx-auto max-w-[1240px]">
         <div className="relative overflow-hidden rounded-[var(--radius-cta)] border border-[rgba(139,92,246,0.24)] bg-[linear-gradient(135deg,rgba(58,21,122,0.92),rgba(17,10,34,0.98))] px-6 py-14 text-center shadow-[0_0_60px_rgba(124,58,237,0.14)] sm:px-10 lg:px-16 lg:py-20">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(139,92,246,0.18),transparent_62%)]" />
           <div className="relative z-10 mx-auto max-w-3xl">

@@ -10,6 +10,7 @@ import {
 } from "recharts";
 import type { Feature } from "../data/landing";
 import { cardHover, splitReveal, staggerContainer, staggerItem, viewportOnce } from "../lib/motion";
+import { SectionParticleLayer } from "./SectionParticleLayer";
 
 type FeatureRowProps = {
   feature: Feature;
@@ -28,15 +29,19 @@ const chartData = [
 export function FeatureRow({ feature, reverse = false }: FeatureRowProps) {
   return (
     <motion.article
-      className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14"
+      className="relative isolate overflow-hidden grid items-center gap-8 rounded-[32px] lg:grid-cols-2 lg:gap-14"
       variants={staggerContainer}
       initial="hidden"
       whileInView="visible"
       viewport={viewportOnce}
     >
+      <SectionParticleLayer
+        count={140}
+        glowClassName="bg-[radial-gradient(circle_at_center,rgba(124,58,237,0.09),transparent_52%)]"
+      />
       <motion.div
         variants={splitReveal(reverse ? "right" : "left")}
-        className={reverse ? "lg:order-2" : ""}
+        className={reverse ? "relative z-10 lg:order-2" : "relative z-10"}
       >
         <motion.div
           variants={cardHover}
@@ -139,7 +144,10 @@ export function FeatureRow({ feature, reverse = false }: FeatureRowProps) {
         </motion.div>
       </motion.div>
 
-      <motion.div variants={staggerContainer} className={reverse ? "lg:order-1" : ""}>
+      <motion.div
+        variants={staggerContainer}
+        className={reverse ? "relative z-10 lg:order-1" : "relative z-10"}
+      >
         <motion.p
           variants={staggerItem}
           className="mb-4 text-[11px] uppercase tracking-[0.3em] text-[var(--text-muted)]"
