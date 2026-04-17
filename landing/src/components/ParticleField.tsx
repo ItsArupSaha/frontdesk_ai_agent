@@ -6,20 +6,24 @@ type Particle = {
   size: number;
   speed: number;
   alpha: number;
+  vx?: number;
+  vy?: number;
 };
 
 type ParticleFieldProps = {
   className?: string;
+  mode?: "inward" | "ambient";
 };
 
 const PARTICLE_COUNT = 180;
+const AMBIENT_PARTICLE_COUNT = 1000;
 
 /**
  * Subtle white particles that drift slowly inward toward the centre.
  * They reset from the edges when they get close enough to centre,
  * creating a continuous soft inward-flow effect matching the screenshot.
  */
-export function ParticleField({ className }: ParticleFieldProps) {
+export function ParticleField({ className, mode = "inward" }: ParticleFieldProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -34,6 +38,7 @@ export function ParticleField({ className }: ParticleFieldProps) {
     let cx = 0;
     let cy = 0;
     const particles: Particle[] = [];
+    const isAmbient = mode === "ambient";
 
     const spawnEdge = (): Particle => {
       const edge = Math.floor(Math.random() * 4);
@@ -51,6 +56,16 @@ export function ParticleField({ className }: ParticleFieldProps) {
         alpha: 0.12 + Math.random() * 0.30,
       };
     };
+
+    const spawnAmbient = (): Particle => ({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      size: Math.random() > 0.82 ? 1.6 : 0.9 + Math.random() * 0.35,
+      speed: 0.1 + Math.random() * 0.22,
+      alpha: 0.22 + Math.random() * 0.24,
+      vx: (Math.random() - 0.5) * 0.65,
+      vy: (Math.random() - 0.5) * 0.65,
+    });
 
     const spawnRandom = (): Particle => ({
       x: Math.random() * W,
@@ -76,8 +91,9 @@ export function ParticleField({ className }: ParticleFieldProps) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       if (particles.length === 0) {
-        for (let i = 0; i < PARTICLE_COUNT; i++) {
-          particles.push(spawnRandom());
+        const count = isAmbient ? AMBIENT_PARTICLE_COUNT : PARTICLE_COUNT;
+        for (let i = 0; i < count; i++) {
+          particles.push(isAmbient ? spawnAmbient() : spawnRandom());
         }
       }
     };
@@ -86,32 +102,49 @@ export function ParticleField({ className }: ParticleFieldProps) {
       ctx.clearRect(0, 0, W, H);
 
       for (const p of particles) {
-        const dx = cx - p.x;
-        const dy = cy - p.y;
-        const dist = Math.hypot(dx, dy) || 1;
+        if (isAmbient) {
+          p.vx = (p.vx ?? 0) + (Math.random() - 0.5) * 0.018;
+          p.vy = (p.vy ?? 0) + (Math.random() - 0.5) * 0.018;
+          p.vx = Math.max(-0.65, Math.min(0.65, p.vx));
+          p.vy = Math.max(-0.65, Math.min(0.65, p.vy));
+          p.x += p.vx + ((Math.random() - 0.5) * p.speed);
+          p.y += p.vy + ((Math.random() - 0.5) * p.speed);
 
-        // Gentle inward drift
-        const pull = p.speed * (0.5 + (1 - Math.min(dist / (Math.max(W, H) * 0.5), 1)) * 0.8);
-        p.x += (dx / dist) * pull;
-        p.y += (dy / dist) * pull;
+          if (p.x < -12) p.x = W + 12;
+          else if (p.x > W + 12) p.x = -12;
+          if (p.y < -12) p.y = H + 12;
+          else if (p.y > H + 12) p.y = -12;
 
-        // Fade near centre
-        const fadeFactor = Math.min(dist / (Math.max(W, H) * 0.38), 1);
-        ctx.globalAlpha = p.alpha * Math.max(fadeFactor, 0.05);
+          ctx.globalAlpha = p.alpha;
+        } else {
+          const dx = cx - p.x;
+          const dy = cy - p.y;
+          const dist = Math.hypot(dx, dy) || 1;
+
+          // Gentle inward drift
+          const pull = p.speed * (0.5 + (1 - Math.min(dist / (Math.max(W, H) * 0.5), 1)) * 0.8);
+          p.x += (dx / dist) * pull;
+          p.y += (dy / dist) * pull;
+
+          // Fade near centre
+          const fadeFactor = Math.min(dist / (Math.max(W, H) * 0.38), 1);
+          ctx.globalAlpha = p.alpha * Math.max(fadeFactor, 0.05);
+
+          // Reset when within 30px of centre
+          if (dist < 30) {
+            const np = spawnEdge();
+            p.x = np.x;
+            p.y = np.y;
+            p.size = np.size;
+            p.speed = np.speed;
+            p.alpha = np.alpha;
+          }
+        }
+
         ctx.fillStyle = "#ffffff";
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
-
-        // Reset when within 30px of centre
-        if (dist < 30) {
-          const np = spawnEdge();
-          p.x = np.x;
-          p.y = np.y;
-          p.size = np.size;
-          p.speed = np.speed;
-          p.alpha = np.alpha;
-        }
       }
 
       raf = requestAnimationFrame(render);
@@ -125,7 +158,7 @@ export function ParticleField({ className }: ParticleFieldProps) {
       window.removeEventListener("resize", resize);
       cancelAnimationFrame(raf);
     };
-  }, []);
+  }, [mode]);
 
   return <canvas ref={canvasRef} className={className} aria-hidden="true" />;
 }
