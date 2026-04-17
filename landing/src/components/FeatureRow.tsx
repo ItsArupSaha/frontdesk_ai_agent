@@ -36,7 +36,7 @@ export function FeatureRow({ feature, reverse = false }: FeatureRowProps) {
       viewport={viewportOnce}
     >
       <SectionParticleLayer
-        count={140}
+        count={110}
         glowClassName="bg-[radial-gradient(circle_at_center,rgba(124,58,237,0.09),transparent_52%)]"
       />
       <motion.div

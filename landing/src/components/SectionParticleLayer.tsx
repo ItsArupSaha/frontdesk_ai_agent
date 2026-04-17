@@ -10,7 +10,7 @@ type SectionParticleLayerProps = {
 export function SectionParticleLayer({
   className,
   glowClassName,
-  count = 140,
+  count = 110,
 }: SectionParticleLayerProps) {
   return (
     <div className={cn("pointer-events-none absolute inset-0 z-0 overflow-hidden", className)}>

@@ -1,25 +1,38 @@
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, ChevronDown, LayoutDashboard, LogOut } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 const NAV_LINKS = [
   { label: "Home", href: "#home" },
-  { label: "About", href: "#about" },
-  { label: "Blog", href: "#blog" },
-  { label: "Contact", href: "#contact" },
+  { label: "Solutions", href: "#solutions" },
+  { label: "Pricing", href: "#pricing" },
+  { label: "FAQ", href: "#footer" },
 ];
 
 export function Navbar() {
+  const navigate = useNavigate();
+  const { user, role, signOut } = useAuth();
   const [mounted, setMounted] = useState(false);
-  const { scrollY } = useScroll();
-
-  // Subtle background darkening on scroll
-  const bgOpacity = useTransform(scrollY, [0, 80], [0, 0.4]);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setMounted(true), 1500);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [user?.id]);
+
+  async function handleSignOut() {
+    await signOut();
+    navigate("/", { replace: true });
+  }
+
+  const dashboardPath = role === "admin" ? "/admin" : "/dashboard";
+  const initials = user?.email?.slice(0, 1).toUpperCase() ?? "U";
 
   return (
     <motion.header
@@ -30,7 +43,6 @@ export function Navbar() {
       style={{ backgroundColor: "rgba(0,0,0,0.72)" }}
     >
       <div className="mx-auto flex max-w-[1240px] items-center justify-between px-5 py-3 sm:px-8">
-        {/* Logo */}
         <a href="#home" className="flex items-center gap-2.5" aria-label="Xtract home">
           <span
             className="flex h-7 w-7 items-center justify-center rounded-[6px]"
@@ -40,20 +52,13 @@ export function Navbar() {
             }}
             aria-hidden="true"
           >
-            {/* Simple X icon */}
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
               <path d="M2 2L12 12M12 2L2 12" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
             </svg>
           </span>
-          <span
-            className="text-sm font-bold tracking-[0.18em] text-white"
-            style={{ letterSpacing: "0.18em" }}
-          >
-            XTRACT
-          </span>
+          <span className="text-sm font-bold tracking-[0.18em] text-white">XTRACT</span>
         </a>
 
-        {/* Nav links */}
         <nav className="hidden items-center gap-7 md:flex" aria-label="Primary navigation">
           {NAV_LINKS.map((item) => (
             <a
@@ -66,18 +71,57 @@ export function Navbar() {
           ))}
         </nav>
 
-        {/* CTA */}
-        <a
-          href="#cta"
-          className="inline-flex items-center gap-1.5 rounded-[8px] px-3.5 py-1.5 text-xs font-medium text-white transition-opacity duration-150 hover:opacity-90"
-          style={{
-            background: "linear-gradient(135deg,#7C3AED 0%,#8B5CF6 100%)",
-            boxShadow: "0 0 16px rgba(124,58,237,0.30)",
-          }}
-        >
-          Book a call
-          <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </a>
+        {user ? (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(dashboardPath)}
+              className="inline-flex items-center gap-2 rounded-[10px] border border-white/10 bg-white/[0.05] px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-white/[0.08]"
+            >
+              <LayoutDashboard className="h-3.5 w-3.5" />
+              Dashboard
+            </button>
+            <div className="relative">
+              <button
+                onClick={() => setMenuOpen((current) => !current)}
+                className="inline-flex items-center gap-2 rounded-[10px] border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-xs font-medium text-white"
+              >
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[linear-gradient(135deg,#7C3AED_0%,#8B5CF6_100%)] text-[11px] font-semibold">
+                  {initials}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 text-white/60" />
+              </button>
+              {menuOpen ? (
+                <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#0d0b13] p-2 shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
+                  <div className="px-3 py-2">
+                    <p className="truncate text-sm text-white">{user.email}</p>
+                    <p className="mt-1 text-[11px] uppercase tracking-[0.2em] text-white/40">
+                      {role === "admin" ? "Admin" : "Client"}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => void handleSignOut()}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-white/72 transition-colors hover:bg-white/[0.05] hover:text-white"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Logout
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => navigate("/login")}
+            className="inline-flex items-center gap-1.5 rounded-[8px] px-3.5 py-1.5 text-xs font-medium text-white transition-opacity duration-150 hover:opacity-90"
+            style={{
+              background: "linear-gradient(135deg,#7C3AED 0%,#8B5CF6 100%)",
+              boxShadow: "0 0 16px rgba(124,58,237,0.30)",
+            }}
+          >
+            Login
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        )}
       </div>
     </motion.header>
   );

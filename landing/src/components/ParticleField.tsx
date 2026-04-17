@@ -17,7 +17,7 @@ type ParticleFieldProps = {
 };
 
 const PARTICLE_COUNT = 180;
-const AMBIENT_PARTICLE_COUNT = 140;
+const AMBIENT_PARTICLE_COUNT = 110;
 const AMBIENT_TARGET_FPS = 30;
 
 /**

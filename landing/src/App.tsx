@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import { motion } from "framer-motion";
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { CheckCircle2, CircleDollarSign, Sparkles } from "lucide-react";
 import { Navbar } from "./components/Navbar";
 import { Hero } from "./components/Hero";
@@ -12,6 +12,9 @@ import { TestimonialCard } from "./components/TestimonialCard";
 import { FAQItem } from "./components/FAQItem";
 import { CTASection } from "./components/CTASection";
 import { Footer } from "./components/Footer";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { LoadingSpinner } from "./components/LoadingSpinner";
+import { useAuth } from "./contexts/AuthContext";
 import {
   benefits,
   faqs,
@@ -30,6 +33,15 @@ const FeatureRow = lazy(() =>
 );
 const ProcessCard = lazy(() =>
   import("./components/ProcessCard").then((module) => ({ default: module.ProcessCard })),
+);
+const LoginPage = lazy(() =>
+  import("./pages/Login").then((module) => ({ default: module.LoginPage })),
+);
+const DashboardPage = lazy(() =>
+  import("./pages/Dashboard").then((module) => ({ default: module.DashboardPage })),
+);
+const AdminPanelPage = lazy(() =>
+  import("./pages/AdminPanel").then((module) => ({ default: module.AdminPanelPage })),
 );
 
 function SectionSkeleton({ rows = 1 }: { rows?: number }) {
@@ -356,10 +368,99 @@ function LandingPage() {
   );
 }
 
+function AppShell({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate();
+  const { role, signOut, user } = useAuth();
+
+  async function handleSignOut() {
+    await signOut();
+    navigate("/", { replace: true });
+  }
+
+  return (
+    <div className="min-h-screen bg-[#06050a] text-white">
+      <header className="border-b border-white/8 bg-[rgba(8,7,12,0.92)] backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.28em] text-white/40">
+              {role === "admin" ? "Admin Console" : "Client Portal"}
+            </p>
+            <h1 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-white">
+              AI Frontdesk Dashboard
+            </h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-sm text-white/45 sm:block">{user?.email}</span>
+            <a
+              href="/"
+              className="rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/75"
+            >
+              Landing
+            </a>
+            <button
+              onClick={() => void handleSignOut()}
+              className="rounded-full bg-[linear-gradient(135deg,#7C3AED_0%,#8B5CF6_100%)] px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-white"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">{children}</main>
+    </div>
+  );
+}
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { loading, role, user } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#06050a]">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  if (!user) return <Navigate to="/login" replace />;
+  if (role !== "admin") return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<LandingPage />} />
-    </Routes>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#06050a]">
+          <LoadingSpinner size="lg" />
+        </div>
+      }
+    >
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <AppShell>
+                <DashboardPage />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <AdminRoute>
+              <AppShell>
+                <AdminPanelPage />
+              </AppShell>
+            </AdminRoute>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
