@@ -5,6 +5,7 @@ blocking the event loop.
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any
 
 import structlog
@@ -194,9 +195,19 @@ def _day_name_to_working_key(dt: datetime) -> str:
     return ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][dt.weekday()]
 
 
-def _get_search_dates(date_preference: str) -> list[datetime]:
+def _get_tz(timezone_str: str) -> ZoneInfo:
+    """Return ZoneInfo for timezone_str, falling back to America/New_York."""
+    try:
+        return ZoneInfo(timezone_str)
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("Unknown timezone, using America/New_York", bad_tz=timezone_str)
+        return ZoneInfo("America/New_York")
+
+
+def _get_search_dates(date_preference: str, tz: ZoneInfo | None = None) -> list[datetime]:
     """Return a list of dates to search based on the caller's preference."""
-    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    effective_tz = tz or ZoneInfo("America/New_York")
+    today = datetime.now(effective_tz).replace(hour=0, minute=0, second=0, microsecond=0)
 
     pref = date_preference.lower().strip() if date_preference else ""
 
@@ -232,6 +243,7 @@ async def get_available_slots(
     client_id: str,
     date_preference: str,
     duration_minutes: int = 60,
+    timezone_str: str = "America/New_York",
 ) -> list[dict]:
     """Return up to 3 available calendar slots for a client.
 
@@ -248,6 +260,7 @@ async def get_available_slots(
         CalendarNotConnectedError: If the client has no calendar connected.
     """
     creds = _get_credentials(client_id)
+    tz = _get_tz(timezone_str)
 
     # Fetch client working_hours and calendar_id from DB
     supabase = get_supabase()
@@ -264,7 +277,7 @@ async def get_available_slots(
         working_hours = client_row.data[0].get("working_hours") or {}
         calendar_id = client_row.data[0].get("google_calendar_id") or "primary"
 
-    search_dates = _get_search_dates(date_preference)
+    search_dates = _get_search_dates(date_preference, tz)
 
     # Build freebusy query time range
     time_min = search_dates[0].isoformat()
@@ -345,10 +358,52 @@ async def get_available_slots(
 # ---------------------------------------------------------------------------
 
 
+async def delete_event(client_id: str, event_id: str) -> None:
+    """Delete a Google Calendar event for a cancelled appointment.
+
+    Silently succeeds if the event is already gone (404).
+
+    Raises:
+        CalendarBookingError: On unexpected API errors.
+        CalendarNotConnectedError: If the client has no calendar connected.
+    """
+    creds = _get_credentials(client_id)
+
+    supabase = get_supabase()
+    client_row = (
+        supabase.table("clients")
+        .select("google_calendar_id")
+        .eq("id", client_id)
+        .limit(1)
+        .execute()
+    )
+    calendar_id = "primary"
+    if client_row.data:
+        calendar_id = client_row.data[0].get("google_calendar_id") or "primary"
+
+    try:
+        service = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: build("calendar", "v3", credentials=creds, cache_discovery=False),
+        )
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: service.events().delete(calendarId=calendar_id, eventId=event_id).execute(),
+        )
+        logger.info("Calendar event deleted", client_id=client_id, event_id=event_id)
+    except HttpError as exc:
+        if exc.resp.status == 404:
+            logger.info("Calendar event already gone", client_id=client_id, event_id=event_id)
+            return
+        logger.error("Calendar event delete failed", client_id=client_id, event_id=event_id, error=str(exc))
+        raise CalendarBookingError(f"Failed to delete calendar event: {exc}") from exc
+
+
 async def book_appointment(
     client_id: str,
     slot: dict,
     caller_details: dict,
+    timezone_str: str = "America/New_York",
 ) -> dict:
     """Create a Google Calendar event for a booked appointment.
 
@@ -394,8 +449,8 @@ async def book_appointment(
         "summary": summary,
         "description": description,
         "colorId": color_id,
-        "start": {"dateTime": slot["start"], "timeZone": "America/New_York"},
-        "end": {"dateTime": slot["end"], "timeZone": "America/New_York"},
+        "start": {"dateTime": slot["start"], "timeZone": timezone_str},
+        "end": {"dateTime": slot["end"], "timeZone": timezone_str},
     }
 
     try:

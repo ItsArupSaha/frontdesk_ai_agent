@@ -14,10 +14,59 @@ logger = structlog.get_logger(__name__)
 
 _E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
 
+# TCPA STOP keywords (per Twilio compliance guidelines)
+_STOP_KEYWORDS = {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}
+_START_KEYWORDS = {"START", "YES", "UNSTOP"}
+
 
 def _is_valid_e164(number: str) -> bool:
     """Return True if number is a valid E.164 phone number."""
     return bool(_E164_RE.match(number))
+
+
+def is_opted_out(phone_number: str, client_id: str) -> bool:
+    """Return True if this number has sent STOP for this client."""
+    try:
+        from backend.db.client import get_supabase
+        sb = get_supabase()
+        res = (
+            sb.table("sms_optouts")
+            .select("id")
+            .eq("phone_number", phone_number)
+            .eq("client_id", client_id)
+            .limit(1)
+            .execute()
+        )
+        return bool(res.data)
+    except Exception as exc:
+        logger.warning("Optout check failed — assuming not opted out", error=str(exc))
+        return False
+
+
+def record_optout(phone_number: str, client_id: str) -> None:
+    """Record a STOP request for TCPA compliance."""
+    try:
+        from backend.db.client import get_supabase
+        get_supabase().table("sms_optouts").upsert(
+            {"phone_number": phone_number, "client_id": client_id},
+            on_conflict="phone_number,client_id",
+            ignore_duplicates=True,
+        ).execute()
+        logger.info("SMS optout recorded", phone=phone_number, client_id=client_id)
+    except Exception as exc:
+        logger.error("Failed to record SMS optout", error=str(exc))
+
+
+def remove_optout(phone_number: str, client_id: str) -> None:
+    """Remove a STOP record when a caller sends START/UNSTOP."""
+    try:
+        from backend.db.client import get_supabase
+        get_supabase().table("sms_optouts").delete().eq(
+            "phone_number", phone_number
+        ).eq("client_id", client_id).execute()
+        logger.info("SMS optout removed", phone=phone_number, client_id=client_id)
+    except Exception as exc:
+        logger.error("Failed to remove SMS optout", error=str(exc))
 
 
 def send_sms(to_number: str, message: str, client_id: str) -> dict:
@@ -39,6 +88,10 @@ def send_sms(to_number: str, message: str, client_id: str) -> dict:
             client_id=client_id,
         )
         return {"success": False, "error": f"Invalid E.164 number: {to_number}"}
+
+    if is_opted_out(to_number, client_id):
+        logger.info("SMS suppressed — number opted out", to=to_number, client_id=client_id)
+        return {"success": False, "error": "opted_out"}
 
     try:
         twilio = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)

@@ -121,7 +121,11 @@ class SettingsPayload(BaseModel):
     """Body accepted by PUT /api/dashboard/settings."""
 
     business_name: str | None = None
+    bot_name: str | None = None
     emergency_phone_number: str | None = None
+    main_phone_number: str | None = None
+    is_ai_enabled: bool | None = None
+    timezone: str | None = None
     working_hours: dict | None = None
     services_offered: list[str] | None = None
     service_area_description: str | None = None
@@ -165,7 +169,7 @@ async def get_overview(
         # All calls this week for the client.
         calls_week_resp = (
             sb.table("call_logs")
-            .select("id,was_emergency,was_booked,started_at")
+            .select("id,was_emergency,started_at")
             .eq("client_id", client_id)
             .gte("started_at", week_iso)
             .execute()
@@ -178,8 +182,19 @@ async def get_overview(
             if c.get("started_at", "") >= today_iso
         )
         calls_this_week = len(calls_week)
-        bookings_this_week = sum(1 for c in calls_week if c.get("was_booked"))
         emergencies_this_week = sum(1 for c in calls_week if c.get("was_emergency"))
+
+        # Count bookings from the bookings table (ground truth) — not call_logs.was_booked,
+        # which can be stale during the brief window before the background task completes.
+        bookings_week_resp = (
+            sb.table("bookings")
+            .select("id")
+            .eq("client_id", client_id)
+            .neq("status", "cancelled")
+            .gte("created_at", week_iso)
+            .execute()
+        )
+        bookings_this_week = len(bookings_week_resp.data or [])
         booking_rate = (
             round(bookings_this_week / calls_this_week, 4) if calls_this_week else 0.0
         )
@@ -397,8 +412,9 @@ async def get_settings(
         resp = (
             sb.table("clients")
             .select(
-                "id,business_name,emergency_phone_number,working_hours,"
-                "services_offered,service_area_description,google_review_link,"
+                "id,business_name,bot_name,emergency_phone_number,main_phone_number,"
+                "is_ai_enabled,timezone,working_hours,services_offered,"
+                "service_area_description,google_review_link,"
                 "vapi_assistant_id,twilio_phone_number,is_active,"
                 "fsm_type,created_at,updated_at"
             )
@@ -436,8 +452,16 @@ async def update_settings(
     update: dict[str, Any] = {}
     if payload.business_name is not None:
         update["business_name"] = payload.business_name
+    if payload.bot_name is not None:
+        update["bot_name"] = payload.bot_name
     if payload.emergency_phone_number is not None:
         update["emergency_phone_number"] = payload.emergency_phone_number
+    if payload.main_phone_number is not None:
+        update["main_phone_number"] = payload.main_phone_number
+    if payload.is_ai_enabled is not None:
+        update["is_ai_enabled"] = payload.is_ai_enabled
+    if payload.timezone is not None:
+        update["timezone"] = payload.timezone
     if payload.working_hours is not None:
         update["working_hours"] = payload.working_hours
     if payload.services_offered is not None:
@@ -496,10 +520,31 @@ async def update_booking_status(
 ) -> dict[str, Any]:
     """Mark a booking as completed or cancelled.
 
-    Used by the Bookings page "Mark as completed" action.
-    client_id is required for multi-tenant isolation.
+    On cancel: deletes unsent reminders_queue rows and removes the Google Calendar event.
+    On complete: sends the review request SMS immediately (job confirmed done).
     """
     sb = get_supabase()
+
+    # Fetch the current booking row before updating so we have the details needed
+    # for cleanup (google_event_id, caller_phone) and review SMS (caller_name, caller_phone).
+    try:
+        fetch_resp = (
+            sb.table("bookings")
+            .select("id,caller_name,caller_phone,google_event_id,status")
+            .eq("id", booking_id)
+            .eq("client_id", client_id)
+            .limit(1)
+            .execute()
+        )
+        booking_rows: list[dict] = fetch_resp.data or []
+    except Exception as exc:
+        logger.error("Booking fetch failed", booking_id=booking_id, error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to fetch booking")
+
+    if not booking_rows:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    booking = booking_rows[0]
 
     try:
         resp = (
@@ -521,6 +566,78 @@ async def update_booking_status(
 
     if not rows:
         raise HTTPException(status_code=404, detail="Booking not found")
+
+    caller_phone: str = booking.get("caller_phone") or ""
+    caller_name: str = booking.get("caller_name") or "there"
+    google_event_id: str = booking.get("google_event_id") or ""
+
+    if status == "cancelled":
+        # Delete unsent reminders for this caller so they aren't texted after cancellation.
+        if caller_phone:
+            try:
+                sb.table("reminders_queue").delete().eq(
+                    "client_id", client_id
+                ).eq("to_number", caller_phone).eq("sent", False).in_(
+                    "type", ["reminder", "review_request"]
+                ).execute()
+                logger.info(
+                    "Reminders deleted on cancellation",
+                    booking_id=booking_id,
+                    client_id=client_id,
+                )
+            except Exception as exc:
+                logger.error("Failed to delete reminders on cancel", error=str(exc))
+
+        # Delete the Google Calendar event.
+        if google_event_id:
+            try:
+                from backend.services.calendar_service import (
+                    delete_event,
+                    CalendarNotConnectedError,
+                    CalendarBookingError,
+                )
+                await delete_event(client_id, google_event_id)
+            except CalendarNotConnectedError:
+                logger.warning("Calendar not connected — event not deleted", client_id=client_id)
+            except CalendarBookingError as exc:
+                logger.error("Failed to delete calendar event", error=str(exc))
+            except Exception as exc:
+                logger.error("Unexpected error deleting calendar event", error=str(exc))
+
+    elif status == "completed":
+        # Job is done — send review request SMS now.
+        if caller_phone:
+            try:
+                client_resp = (
+                    sb.table("clients")
+                    .select("business_name,google_review_link")
+                    .eq("id", client_id)
+                    .limit(1)
+                    .execute()
+                )
+                business_name = "us"
+                review_link = ""
+                if client_resp.data:
+                    business_name = client_resp.data[0].get("business_name", "us")
+                    review_link = client_resp.data[0].get("google_review_link") or ""
+
+                if review_link:
+                    review_msg = (
+                        f"Hi {caller_name}! Hope {business_name} took great care of you. "
+                        f"Mind leaving a quick review? It means a lot: "
+                        f"https://g.page/{review_link}/review  Reply STOP to opt out."
+                    )
+                else:
+                    review_msg = (
+                        f"Hi {caller_name}! Hope {business_name} took great care of you. "
+                        f"We'd love your feedback — give us a call anytime!  Reply STOP to opt out."
+                    )
+
+                from backend.services.sms_service import send_sms
+                send_sms(caller_phone, review_msg, client_id)
+                logger.info("Review request sent on completion", booking_id=booking_id)
+            except Exception as exc:
+                logger.error("Failed to send review request on completion", error=str(exc))
 
     return rows[0]
 

@@ -185,15 +185,16 @@ async def greeting_node(state: AgentState) -> dict:
             return {"is_emergency": True, "current_node": "emergency"}
 
     business_name = state["client_config"].get("business_name", "our business")
+    bot_name = state["client_config"].get("bot_name", "Alex")
     if first_user_msg:
         greeting_text = (
-            f"Thank you for calling {business_name}! I'm Alex, your virtual assistant. "
+            f"Thank you for calling {business_name}! I'm {bot_name}, your virtual assistant. "
             f"I heard you mention '{first_user_msg[:80]}' — let me help you with that. "
             "Could you give me a bit more detail?"
         )
     else:
         greeting_text = (
-            f"Thank you for calling {business_name}! I'm Alex, your virtual assistant. "
+            f"Thank you for calling {business_name}! I'm {bot_name}, your virtual assistant. "
             "How can I help you today?"
         )
     return {
@@ -221,8 +222,9 @@ async def qualify_node(state: AgentState) -> dict:
             return {"is_emergency": True, "current_node": "emergency"}
 
     business_name = state["client_config"].get("business_name", "our business")
+    bot_name = state["client_config"].get("bot_name", "Alex")
     system_prompt = (
-        f"You are Alex, the AI assistant for {business_name}. "
+        f"You are {bot_name}, the AI assistant for {business_name}. "
         "The caller has contacted us for service. Your job is to:\n"
         "1. Warmly acknowledge what the caller said.\n"
         "2. Confirm it sounds non-emergency and that you will help them book a visit.\n"
@@ -505,9 +507,10 @@ async def booking_node(state: AgentState) -> dict:
                 date_preference = pref
                 break
 
+        tz = client_config.get("timezone", "America/New_York")
         try:
             slots = await calendar_service.get_available_slots(
-                client_id, date_preference
+                client_id, date_preference, timezone_str=tz
             )
         except CalendarNotConnectedError:
             logger.warning("Calendar not connected during booking", client_id=client_id)
@@ -587,8 +590,9 @@ async def booking_node(state: AgentState) -> dict:
         "problem_description": problem_description,
     }
 
+    tz = client_config.get("timezone", "America/New_York")
     try:
-        event = await calendar_service.book_appointment(client_id, chosen_slot, caller_details)
+        event = await calendar_service.book_appointment(client_id, chosen_slot, caller_details, timezone_str=tz)
         google_event_id = event.get("id")
     except (CalendarBookingError, Exception) as exc:
         logger.error("Booking failed", client_id=client_id, error=str(exc))
@@ -641,20 +645,21 @@ async def booking_node(state: AgentState) -> dict:
         except Exception as exc:
             logger.error("Failed to persist booking to DB", client_id=client_id, error=str(exc))
 
-        # Queue reminder (24h before) and review request (2h after) — never raises
+        # Queue 24h reminder only. Review request is NOT auto-queued here —
+        # it fires when the admin marks the booking as "completed" in the dashboard,
+        # ensuring the job was actually done before asking for a review.
         try:
             from datetime import datetime as _dt, timedelta as _td
             appt_start_dt = _dt.fromisoformat(chosen_slot["start"])
-            appt_end_dt   = _dt.fromisoformat(chosen_slot["end"])
             reminder_at   = appt_start_dt - _td(hours=24)
-            review_at     = appt_end_dt   + _td(hours=2)
 
             reminder_msg = (
                 f"Reminder: {business_name} appointment tomorrow at {chosen_slot['label']}. "
-                f"Address confirmation: {caller_address}. Questions? Reply here."
+                f"Address: {caller_address}. Questions? Reply here."
             )
 
-            queue_rows: list[dict] = [
+            from backend.db.client import get_supabase as _get_sb
+            _get_sb().table("reminders_queue").insert([
                 {
                     "client_id": client_id,
                     "type": "reminder",
@@ -662,41 +667,10 @@ async def booking_node(state: AgentState) -> dict:
                     "scheduled_for": reminder_at.isoformat(),
                     "message_body": reminder_msg,
                 },
-            ]
-
-            google_review_link = client_config.get("google_review_link") or ""
-            if google_review_link:
-                review_msg = (
-                    f"Hi {caller_name}! Hope {business_name} took great care of you today. "
-                    f"Mind leaving a quick review? It means a lot: "
-                    f"https://g.page/{google_review_link}/review"
-                )
-            else:
-                review_msg = (
-                    f"Hi {caller_name}! Hope {business_name} took great care of you today. "
-                    f"We'd love your feedback — give us a call anytime!"
-                )
-            queue_rows.append({
-                "client_id": client_id,
-                "type": "review_request",
-                "to_number": caller_phone,
-                "scheduled_for": review_at.isoformat(),
-                "message_body": review_msg,
-            })
-
-            from backend.db.client import get_supabase as _get_sb
-            _get_sb().table("reminders_queue").insert(queue_rows).execute()
-            logger.info(
-                "Reminder queue entries created after booking",
-                client_id=client_id,
-                count=len(queue_rows),
-            )
+            ]).execute()
+            logger.info("Reminder queued after booking", client_id=client_id)
         except Exception as exc:
-            logger.error(
-                "Failed to queue post-booking reminders",
-                client_id=client_id,
-                error=str(exc),
-            )
+            logger.error("Failed to queue booking reminder", client_id=client_id, error=str(exc))
 
     # Schedule as a background task — do not await it
     asyncio.create_task(asyncio.to_thread(_sms_and_db))

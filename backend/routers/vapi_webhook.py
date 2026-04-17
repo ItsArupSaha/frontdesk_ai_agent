@@ -186,28 +186,20 @@ async def vapi_webhook(request: Request) -> dict:
                 logger.error("Failed to generate/store call summary", call_id=call_id, error=str(exc))
 
             # --- Missed-call recovery SMS ---
+            # Use booking_complete from conversation_state (set during the call) rather
+            # than call_logs.was_booked (set by a background task that may not have
+            # completed yet when status-update/ended fires — race condition avoided).
+            was_booked_from_state: bool = False
+            client_id_for_sms: str = summary_client_id or ""
+            if conv_res.data:
+                was_booked_from_state = conv_res.data[0].get("booking_complete", False)
+
             if phone_num and duration_seconds > 15:
                 try:
-                    # Check if this call resulted in a booking.
-                    # A missing call_log row (caller never reached the assistant)
-                    # is treated as "not booked" — always send recovery SMS.
-                    log_res = (
-                        supabase.table("call_logs")
-                        .select("was_booked, client_id")
-                        .eq("call_id", call_id)
-                        .limit(1)
-                        .execute()
-                    )
-                    was_booked: bool = False
-                    client_id_for_sms: str = ""
-                    if log_res.data:
-                        row = log_res.data[0]
-                        was_booked = row.get("was_booked", False)
-                        client_id_for_sms = str(row.get("client_id", ""))
+                    was_booked: bool = was_booked_from_state
 
                     if not was_booked:
-                        # Resolve business name: from the matched client record, or
-                        # fall back to the first active client (single-tenant fallback).
+                        # Resolve business name from client record.
                         business_name = "our team"
                         lookup_filter = (
                             supabase.table("clients")
@@ -325,10 +317,15 @@ async def vapi_webhook(request: Request) -> dict:
             return {
                 "id": str(row["id"]),
                 "business_name": row["business_name"],
+                "bot_name": row.get("bot_name") or "Alex",
                 "emergency_phone_number": row["emergency_phone_number"],
+                "main_phone_number": row.get("main_phone_number") or "",
+                "is_ai_enabled": row.get("is_ai_enabled", True),
+                "timezone": row.get("timezone") or "America/New_York",
                 "working_hours": row.get("working_hours") or {},
                 "services_offered": row.get("services_offered") or [],
                 "service_area_description": row.get("service_area_description") or "",
+                "google_review_link": row.get("google_review_link") or "",
                 "is_active": row.get("is_active", True),
                 "fsm_type": row.get("fsm_type"),
                 "jobber_api_key": row.get("jobber_api_key") or "",
@@ -402,6 +399,18 @@ async def vapi_webhook(request: Request) -> dict:
         }
 
         emergency_number = client_config.get("emergency_phone_number", "+15550000000")
+
+        # AI toggle: if client has disabled AI forwarding, transfer to their main number.
+        if not client_config.get("is_ai_enabled", True):
+            main_phone = client_config.get("main_phone_number") or emergency_number
+            logger.info("AI disabled for client — forwarding call", client_id=client_config["id"])
+            return {
+                "response": {
+                    "action": "transfer-call",
+                    "phoneNumber": main_phone,
+                    "message": "Please hold while I connect you.",
+                }
+            }
 
         # 3. Ensure a call_logs row exists for this call (upsert — safe on every turn).
         try:
