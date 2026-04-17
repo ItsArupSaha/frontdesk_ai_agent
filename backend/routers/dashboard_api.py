@@ -53,8 +53,10 @@ async def _require_auth(
 
     token = credentials.credentials
 
-    # Dev bypass — only allowed outside production.
-    if settings.app_env != "production" and token == "dev-bypass":
+    # Dev bypass — only allowed when APP_ENV is explicitly "development".
+    # Restricting to development (not just "not production") prevents accidental
+    # bypass in staging or any other non-production environment.
+    if settings.app_env == "development" and token == "dev-bypass":
         return {"sub": "dev-user", "role": "authenticated"}
 
     # Verify with Supabase (the service-key client can call auth.get_user).
@@ -132,6 +134,8 @@ class SettingsPayload(BaseModel):
     google_review_link: str | None = None
     jobber_api_key: str | None = None
     housecall_pro_api_key: str | None = None
+    missed_call_threshold_seconds: int | None = None
+    appointment_duration_minutes: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -159,10 +163,13 @@ async def get_overview(
     # ISO strings — Supabase accepts these in .gte() / .lt() filters.
     today_iso = today_start.isoformat()
 
-    # Monday of the current week (weekday() == 0 for Monday).
+    # Monday of the current week — use timedelta to avoid month-boundary errors
+    # (replace(day=now.day - weekday()) fails when now.day < weekday()).
+    from datetime import timedelta as _td
     days_since_monday = now.weekday()
-    week_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_start = week_start.replace(day=now.day - days_since_monday)
+    week_start = (now - _td(days=days_since_monday)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     week_iso = week_start.isoformat()
 
     try:
@@ -475,6 +482,10 @@ async def update_settings(
         update["jobber_api_key"] = payload.jobber_api_key
     if payload.housecall_pro_api_key is not None:
         update["housecall_pro_api_key"] = payload.housecall_pro_api_key
+    if payload.missed_call_threshold_seconds is not None:
+        update["missed_call_threshold_seconds"] = max(10, payload.missed_call_threshold_seconds)
+    if payload.appointment_duration_minutes is not None:
+        update["appointment_duration_minutes"] = max(15, payload.appointment_duration_minutes)
 
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -640,6 +651,65 @@ async def update_booking_status(
                 logger.error("Failed to send review request on completion", error=str(exc))
 
     return rows[0]
+
+
+# ---------------------------------------------------------------------------
+# POST /api/dashboard/knowledge-base/reingest
+# Trigger re-embedding of client knowledge after settings update.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/knowledge-base/reingest", status_code=202)
+async def reingest_knowledge_base(
+    client_id: str = Query(...),
+    user: dict = Depends(_require_auth),
+) -> dict[str, str]:
+    """Re-embed the client's knowledge base from their current settings.
+
+    Call this after updating services, working hours, pricing, or service area
+    so the RAG store reflects the latest information.  Returns 202 immediately;
+    the ingestion runs in the background.
+    """
+    sb = get_supabase()
+
+    # Load the client row so we have the latest config.
+    try:
+        client_res = (
+            sb.table("clients")
+            .select("*")
+            .eq("id", client_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        logger.error("Knowledge reingest — client fetch failed", client_id=client_id, error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to fetch client config")
+
+    if not client_res.data:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    row = client_res.data[0]
+    client_config = {
+        "id": str(row["id"]),
+        "business_name": row.get("business_name", ""),
+        "services_offered": row.get("services_offered") or [],
+        "working_hours": row.get("working_hours") or {},
+        "service_area_description": row.get("service_area_description") or "",
+        "pricing_ranges": row.get("pricing_ranges") or {},
+    }
+
+    import asyncio as _asyncio
+    from backend.services.rag_service import ingest_client_knowledge
+
+    async def _run_ingest() -> None:
+        try:
+            await ingest_client_knowledge(client_id, client_config)
+            logger.info("Knowledge base re-ingested", client_id=client_id)
+        except Exception as exc:
+            logger.error("Knowledge base reingest failed", client_id=client_id, error=str(exc))
+
+    _asyncio.create_task(_run_ingest())
+    return {"status": "accepted", "message": "Knowledge base re-ingestion started"}
 
 
 # ---------------------------------------------------------------------------

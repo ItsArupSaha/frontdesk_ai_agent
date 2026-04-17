@@ -358,6 +358,41 @@ async def get_available_slots(
 # ---------------------------------------------------------------------------
 
 
+def delete_event_sync(client_id: str, event_id: str) -> None:
+    """Synchronous variant of delete_event for use inside thread-pool workers.
+
+    Called from _sms_and_db (sync thread) to roll back a Google Calendar event
+    when the bookings DB insert fails.  Silently succeeds on 404.
+    """
+    creds = _get_credentials(client_id)
+
+    supabase = get_supabase()
+    client_row = (
+        supabase.table("clients")
+        .select("google_calendar_id")
+        .eq("id", client_id)
+        .limit(1)
+        .execute()
+    )
+    calendar_id = "primary"
+    if client_row.data:
+        calendar_id = client_row.data[0].get("google_calendar_id") or "primary"
+
+    try:
+        service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        logger.info("Calendar event rolled back (sync)", client_id=client_id, event_id=event_id)
+    except HttpError as exc:
+        if exc.resp.status == 404:
+            return
+        logger.error(
+            "Calendar rollback failed (sync)",
+            client_id=client_id,
+            event_id=event_id,
+            error=str(exc),
+        )
+
+
 async def delete_event(client_id: str, event_id: str) -> None:
     """Delete a Google Calendar event for a cancelled appointment.
 

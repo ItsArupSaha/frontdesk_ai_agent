@@ -199,66 +199,31 @@ def build_tools(client_config: dict, client_id: str = ""):
         except Exception as exc:
             logger.error("FSM sync dispatch failed", client_id=client_id, error=str(exc))
 
-        # Queue reminder (24h before) and review request (2h after) — never raises
+        # Queue 24h reminder only. Review request is NOT auto-queued —
+        # it fires when admin marks booking as "completed" in the dashboard.
         try:
             from datetime import timedelta
             from backend.db.client import get_supabase
 
             appt_start_dt = datetime.fromisoformat(slot_start)
-            appt_end_dt = datetime.fromisoformat(slot_end)
             reminder_at = appt_start_dt - timedelta(hours=24)
-            review_at = appt_end_dt + timedelta(hours=2)
 
             reminder_msg = (
                 f"Reminder: {business_name} appointment tomorrow at {slot_label}. "
-                f"Address confirmation: {caller_address}. Questions? Reply here."
-            )
-
-            queue_rows: list[dict] = [
-                {
-                    "client_id": client_id,
-                    "type": "reminder",
-                    "to_number": caller_phone,
-                    "scheduled_for": reminder_at.isoformat(),
-                    "message_body": reminder_msg,
-                },
-            ]
-
-            google_review_link = client_config.get("google_review_link") or ""
-            if google_review_link:
-                review_msg = (
-                    f"Hi {caller_name}! Hope {business_name} took great care of you today. "
-                    f"Mind leaving a quick review? It means a lot: "
-                    f"https://g.page/{google_review_link}/review"
-                )
-            else:
-                review_msg = (
-                    f"Hi {caller_name}! Hope {business_name} took great care of you today. "
-                    f"We'd love your feedback — give us a call anytime!"
-                )
-            queue_rows.append(
-                {
-                    "client_id": client_id,
-                    "type": "review_request",
-                    "to_number": caller_phone,
-                    "scheduled_for": review_at.isoformat(),
-                    "message_body": review_msg,
-                }
+                f"Address: {caller_address}. Questions? Reply here."
             )
 
             supabase = get_supabase()
-            supabase.table("reminders_queue").insert(queue_rows).execute()
-            logger.info(
-                "Reminder queue entries created",
-                client_id=client_id,
-                count=len(queue_rows),
-            )
+            supabase.table("reminders_queue").insert([{
+                "client_id": client_id,
+                "type": "reminder",
+                "to_number": caller_phone,
+                "scheduled_for": reminder_at.isoformat(),
+                "message_body": reminder_msg,
+            }]).execute()
+            logger.info("Reminder queued", client_id=client_id)
         except Exception as exc:
-            logger.error(
-                "Failed to queue post-booking reminders",
-                client_id=client_id,
-                error=str(exc),
-            )
+            logger.error("Failed to queue booking reminder", client_id=client_id, error=str(exc))
 
         return (
             f"Perfect! I've booked you in for {slot_label}. "
@@ -326,15 +291,26 @@ def build_tools(client_config: dict, client_id: str = ""):
             caller_phone: Customer's phone number.
             reason: Reason for the callback request.
         """
+        from datetime import datetime, timezone
         from backend.db.client import get_supabase
 
         try:
             supabase = get_supabase()
-            supabase.table("call_logs").update(
-                {"summary": f"Callback requested: {reason}"}
-            ).eq("client_id", client_id).execute()
+            # Queue as a callback_request in reminders_queue so the admin sees it
+            # in the dashboard and can action it. Scheduled immediately (now) so the
+            # scheduler surfaces it to the admin within minutes.
+            msg = (
+                f"CALLBACK REQUEST — {caller_name} ({caller_phone}): {reason}"
+            )
+            supabase.table("reminders_queue").insert({
+                "client_id": client_id,
+                "type": "callback_request",
+                "to_number": caller_phone,
+                "scheduled_for": datetime.now(timezone.utc).isoformat(),
+                "message_body": msg,
+            }).execute()
         except Exception as exc:
-            logger.error("Failed to save callback request", error=str(exc))
+            logger.error("Failed to save callback request", client_id=client_id, error=str(exc))
 
         return (
             f"Got it, {caller_name}. Someone from our team will call you back "

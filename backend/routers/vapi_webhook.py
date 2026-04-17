@@ -134,11 +134,14 @@ async def vapi_webhook(request: Request) -> dict:
 
             supabase = get_supabase()
 
-            # --- Generate and persist call summary ---
+            # --- Generate and persist call summary + transcript ---
+            summary_client_id: str = ""
+            call_outcome_from_state: str = ""
+            conv_res = None
             try:
                 conv_res = (
                     supabase.table("conversation_state")
-                    .select("messages, client_id")
+                    .select("messages, client_id, booking_complete")
                     .eq("call_id", call_id)
                     .limit(1)
                     .execute()
@@ -146,14 +149,23 @@ async def vapi_webhook(request: Request) -> dict:
                 if conv_res.data:
                     conv_row = conv_res.data[0]
                     raw_messages: list[dict] = conv_row.get("messages") or []
-                    summary_client_id: str = str(conv_row.get("client_id", ""))
+                    summary_client_id = str(conv_row.get("client_id", ""))
+
+                    # Extract sentinel values from messages list
+                    visible_messages: list[dict] = []
+                    for msg in raw_messages:
+                        role = msg.get("role", "")
+                        if role == "__call_outcome__":
+                            call_outcome_from_state = msg.get("content", "")
+                        elif role not in ("__slots__", "__client_config__"):
+                            visible_messages.append(msg)
 
                     # Fetch client_config for business name
                     summary_client_config: dict = {}
                     if summary_client_id:
                         cfg_res = (
                             supabase.table("clients")
-                            .select("business_name")
+                            .select("business_name, missed_call_threshold_seconds")
                             .eq("id", summary_client_id)
                             .limit(1)
                             .execute()
@@ -164,105 +176,113 @@ async def vapi_webhook(request: Request) -> dict:
                     from backend.utils.summarizer import generate_call_summary
                     summary = await generate_call_summary(raw_messages, summary_client_config)
 
-                    # Update existing call_logs row if it exists.
-                    # If none exists (call ended before agent responded), insert one
-                    # so the summary is never silently dropped.
+                    # Store summary + transcript (visible messages only, sentinel-free).
+                    transcript_json = json.dumps(visible_messages)
+                    update_payload = {
+                        "summary": summary,
+                        "transcript": transcript_json,
+                        "status": "ended",
+                        "duration_seconds": duration_seconds,
+                    }
                     update_res = supabase.table("call_logs").update(
-                        {"summary": summary}
+                        update_payload
                     ).eq("call_id", call_id).execute()
 
                     if not update_res.data:
-                        # No call_logs row yet — insert a minimal one with the summary
                         supabase.table("call_logs").insert({
                             "call_id": call_id,
                             "client_id": summary_client_id or None,
                             "summary": summary,
+                            "transcript": transcript_json,
                             "status": "ended",
+                            "duration_seconds": duration_seconds,
                         }).execute()
                         logger.info("Call summary inserted (new row)", call_id=call_id)
                     else:
-                        logger.info("Call summary stored", call_id=call_id)
+                        logger.info("Call summary + transcript stored", call_id=call_id)
             except Exception as exc:
                 logger.error("Failed to generate/store call summary", call_id=call_id, error=str(exc))
 
             # --- Missed-call recovery SMS ---
-            # Use booking_complete from conversation_state (set during the call) rather
-            # than call_logs.was_booked (set by a background task that may not have
-            # completed yet when status-update/ended fires — race condition avoided).
+            # Use booking_complete + call_outcome from conversation_state (set during the
+            # call) rather than call_logs.was_booked (race condition avoided).
+            # Skip SMS entirely for callers who were told they're out-of-area — sending
+            # "we missed you" to someone we just rejected is unprofessional.
             was_booked_from_state: bool = False
             client_id_for_sms: str = summary_client_id or ""
-            if conv_res.data:
+            missed_call_threshold: int = int(
+                (summary_client_config.get("missed_call_threshold_seconds") if summary_client_config else None) or 30
+            )
+            if conv_res and conv_res.data:
                 was_booked_from_state = conv_res.data[0].get("booking_complete", False)
 
-            if phone_num and duration_seconds > 15:
+            skip_recovery = was_booked_from_state or call_outcome_from_state in ("out_of_area", "booked")
+
+            if phone_num and duration_seconds > missed_call_threshold and not skip_recovery:
                 try:
-                    was_booked: bool = was_booked_from_state
+                    # Resolve business name from client record.
+                    business_name = "our team"
+                    lookup_filter = (
+                        supabase.table("clients")
+                        .select("id, business_name")
+                        .eq("id", client_id_for_sms)
+                        .limit(1)
+                    ) if client_id_for_sms else (
+                        supabase.table("clients")
+                        .select("id, business_name")
+                        .eq("is_active", True)
+                        .limit(1)
+                    )
+                    client_res = lookup_filter.execute()
+                    if client_res.data:
+                        business_name = client_res.data[0].get("business_name", "our team")
+                        if not client_id_for_sms:
+                            client_id_for_sms = str(client_res.data[0].get("id", ""))
 
-                    if not was_booked:
-                        # Resolve business name from client record.
-                        business_name = "our team"
-                        lookup_filter = (
-                            supabase.table("clients")
-                            .select("id, business_name")
-                            .eq("id", client_id_for_sms)
-                            .limit(1)
-                        ) if client_id_for_sms else (
-                            supabase.table("clients")
-                            .select("id, business_name")
-                            .eq("is_active", True)
-                            .limit(1)
+                    # Queue the missed-call recovery SMS via reminders_queue
+                    # (scheduler processes it within 2 minutes).
+                    if client_id_for_sms:
+                        recovery_msg = (
+                            f"Hi! We missed your call at {business_name}. "
+                            f"Still need help? Reply here and we'll get back to you shortly."
                         )
-                        client_res = lookup_filter.execute()
-                        if client_res.data:
-                            business_name = client_res.data[0].get("business_name", "our team")
-                            if not client_id_for_sms:
-                                client_id_for_sms = str(client_res.data[0].get("id", ""))
-
-                        # Queue the missed-call recovery SMS via reminders_queue
-                        # (scheduler processes it within 2 minutes).
-                        # Requires a valid client_id — fall back to direct send if unknown.
-                        if client_id_for_sms:
-                            recovery_msg = (
-                                f"Hi! We missed your call at {business_name}. "
-                                f"Still need help? Reply here and we'll get back to you shortly."
+                        scheduled_for = (
+                            datetime.now(timezone.utc) + timedelta(minutes=2)
+                        ).isoformat()
+                        try:
+                            supabase.table("reminders_queue").insert({
+                                "client_id": client_id_for_sms,
+                                "type": "missed_call_recovery",
+                                "to_number": phone_num,
+                                "scheduled_for": scheduled_for,
+                                "message_body": recovery_msg,
+                            }).execute()
+                            logger.info(
+                                "Missed-call recovery queued",
+                                call_id=call_id,
+                                scheduled_for=scheduled_for,
                             )
-                            scheduled_for = (
-                                datetime.now(timezone.utc) + timedelta(minutes=2)
-                            ).isoformat()
-                            try:
-                                supabase.table("reminders_queue").insert({
-                                    "client_id": client_id_for_sms,
-                                    "type": "missed_call_recovery",
-                                    "to_number": phone_num,
-                                    "scheduled_for": scheduled_for,
-                                    "message_body": recovery_msg,
-                                }).execute()
-                                logger.info(
-                                    "Missed-call recovery queued",
-                                    call_id=call_id,
-                                    scheduled_for=scheduled_for,
-                                )
-                            except Exception as exc:
-                                logger.error(
-                                    "Failed to queue missed-call recovery",
-                                    call_id=call_id,
-                                    error=str(exc),
-                                )
-                                # Fallback: send directly so caller is never left without follow-up
-                                from backend.services import sms_service
-                                sms_service.send_missed_call_recovery(
-                                    caller_number=phone_num,
-                                    business_name=business_name,
-                                    client_id=client_id_for_sms,
-                                )
-                        else:
-                            # No client_id — send directly (queue FK would fail)
+                        except Exception as exc:
+                            logger.error(
+                                "Failed to queue missed-call recovery",
+                                call_id=call_id,
+                                error=str(exc),
+                            )
+                            # Fallback: send directly so caller is never left without follow-up
                             from backend.services import sms_service
                             sms_service.send_missed_call_recovery(
                                 caller_number=phone_num,
                                 business_name=business_name,
                                 client_id=client_id_for_sms,
                             )
+                    else:
+                        # No client_id — send directly (queue FK would fail)
+                        from backend.services import sms_service
+                        sms_service.send_missed_call_recovery(
+                            caller_number=phone_num,
+                            business_name=business_name,
+                            client_id=client_id_for_sms,
+                        )
                 except Exception as exc:
                     logger.error("Missed-call recovery failed", call_id=call_id, error=str(exc))
 
@@ -304,8 +324,10 @@ async def vapi_webhook(request: Request) -> dict:
                     res = supabase.table("clients").select("*").eq("twilio_phone_number", phone_num).limit(1).execute()
                     if res.data:
                         return _row_to_config(res.data[0])
-                # Fallback: first active client (dev/single-tenant mode).
-                res = supabase.table("clients").select("*").eq("is_active", True).limit(1).execute()
+                # Fallback: oldest active client by created_at (dev/single-tenant mode).
+                # ORDER BY created_at ensures deterministic result — without it Postgres
+                # returns an arbitrary row when multiple active clients exist.
+                res = supabase.table("clients").select("*").eq("is_active", True).order("created_at").limit(1).execute()
                 if res.data:
                     return _row_to_config(res.data[0])
             except Exception as exc:
@@ -322,6 +344,8 @@ async def vapi_webhook(request: Request) -> dict:
                 "main_phone_number": row.get("main_phone_number") or "",
                 "is_ai_enabled": row.get("is_ai_enabled", True),
                 "timezone": row.get("timezone") or "America/New_York",
+                "missed_call_threshold_seconds": int(row.get("missed_call_threshold_seconds") or 30),
+                "appointment_duration_minutes": int(row.get("appointment_duration_minutes") or 60),
                 "working_hours": row.get("working_hours") or {},
                 "services_offered": row.get("services_offered") or [],
                 "service_area_description": row.get("service_area_description") or "",
@@ -351,6 +375,7 @@ async def vapi_webhook(request: Request) -> dict:
                     #   __client_config__ → client config cached at call start (JSON object)
                     available_slots: list = []
                     cached_config: dict | None = None
+                    call_outcome: str | None = None
                     for msg in row.get("messages") or []:
                         role = msg.get("role")
                         if role == "__slots__":
@@ -363,6 +388,8 @@ async def vapi_webhook(request: Request) -> dict:
                                 cached_config = _json.loads(msg.get("content", "{}"))
                             except Exception:
                                 cached_config = None
+                        elif role == "__call_outcome__":
+                            call_outcome = msg.get("content")
                     return {
                         "current_node": row.get("current_node", "greeting"),
                         "is_emergency": row.get("is_emergency", False),
@@ -374,6 +401,7 @@ async def vapi_webhook(request: Request) -> dict:
                         "booking_complete": row.get("booking_complete", False),
                         "available_slots": available_slots,
                         "cached_client_config": cached_config,
+                        "call_outcome": call_outcome,
                     }
             except Exception as exc:
                 logger.warning("State lookup failed", error=str(exc))
@@ -460,6 +488,7 @@ async def vapi_webhook(request: Request) -> dict:
             "available_slots": state_data.get("available_slots", []),
             "chosen_slot": None,
             "booking_complete": state_data.get("booking_complete", False),
+            "call_outcome": state_data.get("call_outcome"),
             "client_config": client_config,
         }
 
@@ -494,10 +523,14 @@ async def vapi_webhook(request: Request) -> dict:
             ) + [
                 # Sentinel: cache client_config at call start so settings changes
                 # mid-call don't affect the current conversation.
-                # Config intentionally cached at call start — settings changes
-                # take effect on the NEXT call, not mid-call.
                 {"role": "__client_config__", "content": __import__("json").dumps(client_config)}
-            ],
+            ] + (
+                # Sentinel: persist call_outcome so status-update/ended handler can
+                # skip recovery SMS for out_of_area and already-booked callers.
+                [{"role": "__call_outcome__", "content": result_state["call_outcome"]}]
+                if result_state.get("call_outcome")
+                else []
+            ),
         }
         try:
             await loop.run_in_executor(

@@ -23,4 +23,5 @@ class AgentState(dict):
     available_slots: list
     chosen_slot: dict | None
     booking_complete: bool
+    call_outcome: str | None  # "out_of_area" | "booked" | "faq_resolved" | "abandoned"
     client_config: dict

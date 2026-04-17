@@ -17,6 +17,7 @@ from backend.services.sms_service import (
     _START_KEYWORDS,
     record_optout,
     remove_optout,
+    send_sms,
 )
 from backend.utils.logging import get_logger
 
@@ -72,6 +73,39 @@ async def inbound_sms(request: Request) -> Response:
                 client_id=client_id,
                 body_preview=body[:40],
             )
+            # Auto-reply: callers sometimes text back to confirm or ask questions.
+            # Look up business name for a personalised response; fall back gracefully.
+            business_name = "our team"
+            main_phone = ""
+            if client_id:
+                try:
+                    sb = get_supabase()
+                    biz_res = (
+                        sb.table("clients")
+                        .select("business_name, main_phone_number")
+                        .eq("id", client_id)
+                        .limit(1)
+                        .execute()
+                    )
+                    if biz_res.data:
+                        business_name = biz_res.data[0].get("business_name") or business_name
+                        main_phone = biz_res.data[0].get("main_phone_number") or ""
+                except Exception as exc:
+                    logger.warning("Auto-reply biz lookup failed", error=str(exc))
+
+            if main_phone:
+                auto_reply = (
+                    f"Hi! This is an automated number for {business_name}. "
+                    f"For live assistance please call us at {main_phone}. "
+                    f"Reply STOP to opt out of texts."
+                )
+            else:
+                auto_reply = (
+                    f"Hi! This is an automated number for {business_name}. "
+                    f"We can't read replies here — please call us to speak with our team. "
+                    f"Reply STOP to opt out of texts."
+                )
+            send_sms(from_number, auto_reply, client_id)
 
     except Exception as exc:
         logger.error("Inbound SMS handler error", error=str(exc))
