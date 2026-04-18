@@ -21,49 +21,59 @@ function CompletenessCell({ client }: { client: AdminClientSummary }) {
   const [open, setOpen] = useState(false);
   const score = client.completeness_score;
   const color = score >= 90 ? "bg-emerald-400" : score >= 60 ? "bg-amber-400" : "bg-rose-400";
+  const textColor = score >= 90 ? "text-emerald-300" : score >= 60 ? "text-amber-300" : "text-rose-300";
   const missing = Object.entries(client.completeness_breakdown).filter(([, done]) => !done);
-  const done = Object.entries(client.completeness_breakdown).filter(([, d]) => d);
 
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-full py-1 hover:opacity-80"
-        title="Click to see breakdown"
+        className="group flex flex-col gap-1.5 rounded-[12px] border border-white/0 px-2 py-1.5 hover:border-white/10 hover:bg-white/5 transition-colors"
       >
-        <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
-          <div className={`h-full rounded-full ${color}`} style={{ width: `${score}%` }} />
+        <div className="flex items-center gap-2">
+          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
+            <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${score}%` }} />
+          </div>
+          <span className={`text-xs font-semibold ${textColor}`}>{score}%</span>
         </div>
-        <span className="text-xs text-white/55">{score}%</span>
+        <span className="text-left text-[10px] text-white/35 group-hover:text-white/55 transition-colors">
+          {missing.length > 0 ? `${missing.length} missing — click to see` : "All complete ✓"}
+        </span>
       </button>
 
       {open ? (
         <>
-          {/* Click-away backdrop */}
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-8 z-50 w-64 rounded-[18px] border border-white/12 bg-[#0d0a16] p-4 shadow-2xl">
-            <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/40">Setup checklist</p>
-            <ul className="space-y-2">
+          <div className="absolute left-0 top-14 z-50 w-72 rounded-[18px] border border-white/12 bg-[#0d0a16] p-4 shadow-2xl">
+            <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/40">Setup checklist — {client.business_name}</p>
+            <ul className="space-y-2.5">
               {Object.entries(client.completeness_breakdown).map(([label, isDone]) => (
-                <li key={label} className="flex items-center gap-2 text-xs">
+                <li key={label} className="flex items-center gap-2.5 text-xs">
                   <span
-                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
                       isDone ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/15 text-rose-300"
                     }`}
                   >
                     {isDone ? "✓" : "✗"}
                   </span>
-                  <span className={isDone ? "text-white/60" : "text-white/90 font-medium"}>{label}</span>
+                  <span className={isDone ? "text-white/50" : "font-medium text-white/90"}>{label}</span>
+                  {!isDone && (
+                    <span className="ml-auto shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] text-amber-300">
+                      Needed
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
             {missing.length > 0 ? (
-              <p className="mt-3 text-[10px] text-amber-300/70">
-                {missing.length} item{missing.length > 1 ? "s" : ""} remaining
-              </p>
+              <div className="mt-3 rounded-[12px] bg-amber-500/8 px-3 py-2 text-[10px] text-amber-300/80">
+                {missing.length} item{missing.length > 1 ? "s" : ""} remaining for full service
+              </div>
             ) : (
-              <p className="mt-3 text-[10px] text-emerald-300/70">All items complete ✓</p>
+              <div className="mt-3 rounded-[12px] bg-emerald-500/8 px-3 py-2 text-[10px] text-emerald-300/80">
+                All setup items complete ✓
+              </div>
             )}
           </div>
         </>
@@ -356,10 +366,7 @@ export function AdminPanelPage() {
                     <th className="px-4 py-4">Business</th>
                     <th className="px-4 py-4">Status</th>
                     <th className="px-4 py-4">Provisioning</th>
-                    <th className="px-4 py-4">
-                      Completeness
-                      <span className="ml-1 text-white/25">(click %)</span>
-                    </th>
+                    <th className="px-4 py-4">Completeness</th>
                     <th className="px-4 py-4">Calls / Mo</th>
                     <th className="px-4 py-4">Bookings / Mo</th>
                     <th className="px-4 py-4">Est. Cost</th>
