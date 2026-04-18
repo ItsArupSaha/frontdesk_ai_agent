@@ -19,3 +19,5 @@ twilio==9.0.4
 cryptography==42.0.5
 apscheduler==3.10.4
 slowapi==0.1.9
+pypdf==4.2.0
+python-multipart==0.0.9

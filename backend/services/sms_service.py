@@ -112,6 +112,32 @@ def send_sms(to_number: str, message: str, client_id: str) -> dict:
         return {"success": False, "error": str(exc)}
 
 
+def _is_sms_enabled(client_id: str) -> bool:
+    """Return True if A2P SMS registration is complete for this client.
+
+    Safe default is False — block rather than send unregistered SMS that
+    carriers will silently filter or flag.
+    """
+    if not client_id:
+        return False
+    try:
+        from backend.db.client import get_supabase
+        res = (
+            get_supabase()
+            .table("clients")
+            .select("sms_enabled")
+            .eq("id", client_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            return bool(res.data[0].get("sms_enabled", False))
+        return False
+    except Exception as exc:
+        logger.warning("SMS enabled check failed — blocking SMS", client_id=client_id, error=str(exc))
+        return False
+
+
 def send_booking_confirmation(booking_details: dict, client_config: dict) -> dict:
     """Send an appointment confirmation SMS to the caller.
 
@@ -127,6 +153,13 @@ def send_booking_confirmation(booking_details: dict, client_config: dict) -> dic
     appointment_label = booking_details.get("appointment_label", "your appointment")
     business_name = booking_details.get("business_name", "us")
     client_id = client_config.get("id", "unknown")
+
+    if not _is_sms_enabled(client_id):
+        logger.info(
+            "Booking confirmation SMS blocked — SMS not yet enabled (A2P pending)",
+            client_id=client_id,
+        )
+        return {"success": False, "error": "sms_not_enabled"}
 
     message = (
         f"Hi {caller_name}! Your appointment with {business_name} is confirmed "
@@ -151,6 +184,13 @@ def send_missed_call_recovery(
     Returns:
         Result dict from send_sms.
     """
+    if not _is_sms_enabled(client_id):
+        logger.info(
+            "Missed-call recovery SMS blocked — SMS not yet enabled (A2P pending)",
+            client_id=client_id,
+        )
+        return {"success": False, "error": "sms_not_enabled"}
+
     message = (
         f"Hi! We missed your call at {business_name}. Still need help? "
         f"Reply here and we'll get back to you shortly."

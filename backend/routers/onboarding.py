@@ -239,6 +239,9 @@ async def create_client(request: Request, payload: ClientCreatePayload) -> dict[
             "working_hours": payload.working_hours,
             "service_area_description": payload.service_area_description,
             "is_active": True,
+            # SMS disabled by default — US A2P 10DLC carrier registration required.
+            # Voice calls work immediately.  Admin enables SMS after registration.
+            "sms_enabled": False,
             # No 'role' column — clients table is for client businesses only.
             # Admin identity lives in the separate 'admins' table.
             "vapi_assistant_id": None,

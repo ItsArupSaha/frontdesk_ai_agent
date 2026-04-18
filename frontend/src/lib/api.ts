@@ -71,7 +71,12 @@ export interface HourlyCount {
 export interface ClientSettings {
   id: string;
   business_name: string;
+  bot_name: string | null;
   emergency_phone_number: string;
+  main_phone_number: string | null;
+  is_ai_enabled: boolean;
+  sms_enabled: boolean;
+  timezone: string | null;
   working_hours: Record<string, string>;
   services_offered: string[];
   service_area_description: string;
@@ -80,6 +85,7 @@ export interface ClientSettings {
   twilio_phone_number: string | null;
   is_active: boolean;
   fsm_type: string | null;
+  kb_last_ingested_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -95,6 +101,12 @@ export interface AdminClientSummary {
   business_name: string;
   email: string | null;
   is_active: boolean;
+  sms_enabled: boolean;
+  twilio_phone_number: string | null;
+  vapi_assistant_id: string | null;
+  completeness_score: number;
+  completeness_breakdown: Record<string, boolean>;
+  provisioning_notes: string | null;
   calls_this_month: number;
   last_call_at: string | null;
   bookings_this_month: number;
@@ -134,7 +146,11 @@ export interface ClientCreateResponse {
 
 export interface SettingsPayload {
   business_name?: string;
+  bot_name?: string;
   emergency_phone_number?: string;
+  main_phone_number?: string;
+  is_ai_enabled?: boolean;
+  timezone?: string;
   working_hours?: Record<string, string>;
   services_offered?: string[];
   service_area_description?: string;
@@ -268,4 +284,44 @@ export function updateBookingStatus(
   return apiFetch(`/api/dashboard/bookings/${bookingId}?${query.toString()}`, token, {
     method: "PATCH",
   });
+}
+
+export function updateSmsEnabled(
+  token: string,
+  clientId: string,
+  smsEnabled: boolean,
+  provisioningNotes?: string,
+): Promise<{ client_id: string; sms_enabled: boolean }> {
+  return apiFetch(`/api/admin/clients/${clientId}/sms-enabled`, token, {
+    method: "PUT",
+    body: JSON.stringify({ sms_enabled: smsEnabled, provisioning_notes: provisioningNotes ?? null }),
+  });
+}
+
+export function reingestKnowledgeBase(
+  token: string,
+  clientId: string,
+): Promise<{ status: string; message: string }> {
+  return apiFetch(`/api/dashboard/knowledge-base/reingest?client_id=${clientId}`, token, {
+    method: "POST",
+  });
+}
+
+export async function uploadKnowledgeDocument(
+  token: string,
+  clientId: string,
+  file: File,
+): Promise<{ status: string; filename: string; chunks_ingested: number; message: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(`${BASE}/api/dashboard/knowledge-base/upload?client_id=${clientId}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`API ${response.status}: ${body}`);
+  }
+  return response.json() as Promise<{ status: string; filename: string; chunks_ingested: number; message: string }>;
 }

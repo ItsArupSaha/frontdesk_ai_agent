@@ -21,6 +21,8 @@ const AdminPanelPage = lazy(() =>
   import("./pages/AdminPanel").then((module) => ({ default: module.AdminPanelPage })),
 );
 const ClientOnboardingPage = lazy(() => import("./pages/ClientOnboarding"));
+const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
+const PaymentPage = lazy(() => import("./pages/PaymentPage"));
 
 function RootEntry() {
   const { user, role, loading } = useAuth();
@@ -103,6 +105,8 @@ export default function App() {
             </AdminRoute>
           }
         />
+        <Route path="/feedback" element={<FeedbackPage />} />
+        <Route path="/payment" element={<PaymentPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Suspense>

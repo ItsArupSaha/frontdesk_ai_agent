@@ -16,7 +16,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -420,10 +420,10 @@ async def get_settings(
             sb.table("clients")
             .select(
                 "id,business_name,bot_name,emergency_phone_number,main_phone_number,"
-                "is_ai_enabled,timezone,working_hours,services_offered,"
+                "is_ai_enabled,sms_enabled,timezone,working_hours,services_offered,"
                 "service_area_description,google_review_link,"
                 "vapi_assistant_id,twilio_phone_number,is_active,"
-                "fsm_type,created_at,updated_at"
+                "fsm_type,created_at,updated_at,kb_last_ingested_at"
             )
             .eq("id", client_id)
             .limit(1)
@@ -632,20 +632,22 @@ async def update_booking_status(
                     business_name = client_resp.data[0].get("business_name", "us")
                     review_link = client_resp.data[0].get("google_review_link") or ""
 
-                if review_link:
+                from backend.services.sms_service import send_sms, _is_sms_enabled
+                if not _is_sms_enabled(client_id):
+                    logger.info("Review SMS blocked — sms_not_enabled", client_id=client_id)
+                elif review_link:
                     review_msg = (
                         f"Hi {caller_name}! Hope {business_name} took great care of you. "
                         f"Mind leaving a quick review? It means a lot: "
                         f"https://g.page/{review_link}/review  Reply STOP to opt out."
                     )
+                    send_sms(caller_phone, review_msg, client_id)
                 else:
                     review_msg = (
                         f"Hi {caller_name}! Hope {business_name} took great care of you. "
                         f"We'd love your feedback — give us a call anytime!  Reply STOP to opt out."
                     )
-
-                from backend.services.sms_service import send_sms
-                send_sms(caller_phone, review_msg, client_id)
+                    send_sms(caller_phone, review_msg, client_id)
                 logger.info("Review request sent on completion", booking_id=booking_id)
             except Exception as exc:
                 logger.error("Failed to send review request on completion", error=str(exc))
@@ -710,6 +712,91 @@ async def reingest_knowledge_base(
 
     _asyncio.create_task(_run_ingest())
     return {"status": "accepted", "message": "Knowledge base re-ingestion started"}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/dashboard/knowledge-base/upload
+# Upload a document (PDF/TXT/MD) and add its contents to the knowledge base.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/knowledge-base/upload", status_code=202)
+async def upload_knowledge_document(
+    client_id: str = Query(...),
+    user: dict = Depends(_require_auth),
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """Upload a document and embed its text into the client's knowledge base.
+
+    Supported formats: PDF, TXT, MD.
+    Returns 202 with chunk count once embedding is complete (runs synchronously
+    so the caller knows if it worked — files are small so latency is acceptable).
+
+    Raises:
+        400 if the file type is unsupported or text extraction fails.
+        413 if the file exceeds 5 MB.
+    """
+
+    _MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+    _ALLOWED = {".pdf", ".txt", ".md"}
+
+    import io
+    import os
+
+    filename = file.filename or "document"
+    ext = os.path.splitext(filename)[-1].lower()
+    if ext not in _ALLOWED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{ext}'. Allowed: PDF, TXT, MD",
+        )
+
+    raw_bytes = await file.read()
+    if len(raw_bytes) > _MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds 5 MB limit")
+
+    # Extract plain text.
+    text = ""
+    try:
+        if ext == ".pdf":
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(raw_bytes))
+            text = "\n".join(
+                page.extract_text() or "" for page in reader.pages
+            )
+        else:
+            text = raw_bytes.decode("utf-8", errors="replace")
+    except Exception as exc:
+        logger.error("Document text extraction failed", filename=filename, error=str(exc))
+        raise HTTPException(status_code=400, detail=f"Failed to read document: {exc}")
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="No readable text found in document")
+
+    # Embed and store.
+    from backend.services.rag_service import ingest_document_text
+    try:
+        chunk_count = await ingest_document_text(client_id, text, filename)
+    except Exception as exc:
+        logger.error("Document ingestion failed", client_id=client_id, filename=filename, error=str(exc))
+        raise HTTPException(status_code=500, detail="Document ingestion failed")
+
+    # Stamp kb_last_ingested_at so admin completeness score updates.
+    from datetime import datetime as _dt, timezone as _tz
+    try:
+        get_supabase().table("clients").update(
+            {"kb_last_ingested_at": _dt.now(_tz.utc).isoformat()}
+        ).eq("id", client_id).execute()
+    except Exception as exc:
+        logger.warning("Failed to stamp kb_last_ingested_at", client_id=client_id, error=str(exc))
+
+    logger.info("Document uploaded and ingested", client_id=client_id, filename=filename, chunks=chunk_count)
+    return {
+        "status": "accepted",
+        "filename": filename,
+        "chunks_ingested": chunk_count,
+        "message": f"Document '{filename}' embedded into knowledge base ({chunk_count} chunks).",
+    }
 
 
 # ---------------------------------------------------------------------------

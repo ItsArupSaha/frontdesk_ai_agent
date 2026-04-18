@@ -152,6 +152,80 @@ async def ingest_client_knowledge(client_id: str, client_config: dict[str, Any])
         raise
 
 
+async def ingest_document_text(client_id: str, text: str, filename: str) -> int:
+    """Embed and store raw document text as knowledge chunks (additive — does not wipe existing).
+
+    Splits text into ~500-char chunks, embeds each, and inserts them alongside
+    existing knowledge chunks (services, hours, etc.).  Returns the number of
+    chunks successfully ingested.
+
+    Args:
+        client_id: The client's UUID string.
+        text: Extracted plain text from an uploaded document.
+        filename: Original filename (used as category label for tracing).
+
+    Returns:
+        Number of chunks ingested.
+    """
+    # Split into ~500-char chunks on sentence/paragraph boundaries.
+    _CHUNK_SIZE = 500
+    _OVERLAP = 50
+    raw = text.strip()
+    if not raw:
+        return 0
+
+    chunks: list[str] = []
+    start = 0
+    while start < len(raw):
+        end = min(start + _CHUNK_SIZE, len(raw))
+        # Try to break on whitespace to avoid mid-word splits.
+        if end < len(raw):
+            break_at = raw.rfind(" ", start, end)
+            if break_at > start:
+                end = break_at
+        chunks.append(raw[start:end].strip())
+        start = end - _OVERLAP if end < len(raw) else end
+
+    embedded_rows: list[dict[str, Any]] = []
+    category = f"document:{filename}"
+    for chunk in chunks:
+        if not chunk:
+            continue
+        try:
+            vector = await embed_text(chunk)
+        except openai.OpenAIError as exc:
+            logger.warning("Document chunk embedding failed", client_id=client_id, error=str(exc))
+            continue
+        embedded_rows.append({
+            "client_id": client_id,
+            "content": chunk,
+            "embedding": vector,
+            "category": category,
+        })
+
+    if not embedded_rows:
+        return 0
+
+    supabase = get_supabase()
+    try:
+        # Delete stale chunks from this specific document before re-inserting.
+        supabase.table("knowledge_chunks").delete().eq(
+            "client_id", client_id
+        ).eq("category", category).execute()
+        supabase.table("knowledge_chunks").insert(embedded_rows).execute()
+        logger.info(
+            "Document ingestion complete",
+            client_id=client_id,
+            filename=filename,
+            chunk_count=len(embedded_rows),
+        )
+    except Exception as exc:
+        logger.error("Document DB insert failed", client_id=client_id, error=str(exc))
+        raise
+
+    return len(embedded_rows)
+
+
 async def query_knowledge(
     client_id: str,
     question: str,

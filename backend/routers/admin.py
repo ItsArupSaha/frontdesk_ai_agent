@@ -37,6 +37,12 @@ class ClientSummary(BaseModel):
     business_name: str
     email: str | None
     is_active: bool
+    sms_enabled: bool
+    twilio_phone_number: str | None
+    vapi_assistant_id: str | None
+    completeness_score: int  # 0-100
+    completeness_breakdown: dict[str, bool]  # item_label → done
+    provisioning_notes: str | None
     calls_this_month: int
     last_call_at: str | None
     bookings_this_month: int
@@ -47,6 +53,13 @@ class StatusPayload(BaseModel):
     """Body for PUT /api/admin/clients/{client_id}/status."""
 
     is_active: bool
+
+
+class SmsEnabledPayload(BaseModel):
+    """Body for PUT /api/admin/clients/{client_id}/sms-enabled."""
+
+    sms_enabled: bool
+    provisioning_notes: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +87,12 @@ async def list_clients(
     try:
         clients_resp = (
             sb.table("clients")
-            .select("id,business_name,email,is_active")
+            .select(
+                "id,business_name,email,is_active,sms_enabled,"
+                "twilio_phone_number,vapi_assistant_id,provisioning_notes,"
+                "emergency_phone_number,working_hours,services_offered,"
+                "google_review_link,kb_last_ingested_at"
+            )
             .execute()
         )
         clients: list[dict] = clients_resp.data or []
@@ -131,12 +149,31 @@ async def list_clients(
         last_call_at = last_call_rows[0]["started_at"] if last_call_rows else None
         monthly_cost = round(5.0 + calls_count * 0.15 + bookings_count * 0.05, 2)
 
+        # Completeness breakdown — each item maps to a human-readable label.
+        breakdown: dict[str, bool] = {
+            "Emergency phone set": bool(client.get("emergency_phone_number")),
+            "Working hours set": bool(client.get("working_hours")),
+            "Services listed": bool(client.get("services_offered")),
+            "AI agent provisioned": bool(client.get("vapi_assistant_id")),
+            "Phone number provisioned": bool(client.get("twilio_phone_number")),
+            "SMS activated (A2P)": bool(client.get("sms_enabled")),
+            "Google review link": bool(client.get("google_review_link")),
+            "Knowledge base ingested": bool(client.get("kb_last_ingested_at")),
+        }
+        completeness_score = round(sum(breakdown.values()) / len(breakdown) * 100)
+
         summaries.append(
             ClientSummary(
                 id=client_id,
                 business_name=client.get("business_name", ""),
                 email=client.get("email"),
                 is_active=client.get("is_active", True),
+                sms_enabled=bool(client.get("sms_enabled", False)),
+                twilio_phone_number=client.get("twilio_phone_number"),
+                vapi_assistant_id=client.get("vapi_assistant_id"),
+                completeness_score=completeness_score,
+                completeness_breakdown=breakdown,
+                provisioning_notes=client.get("provisioning_notes"),
                 calls_this_month=calls_count,
                 last_call_at=last_call_at,
                 bookings_this_month=bookings_count,
@@ -224,3 +261,47 @@ async def impersonate_client(
         "is_active": client.get("is_active", True),
         "dashboard_url": f"/dashboard?impersonate={client_id}",
     }
+
+
+@router.put("/clients/{client_id}/sms-enabled")
+async def update_sms_enabled(
+    client_id: str,
+    payload: SmsEnabledPayload,
+    _admin: dict = Depends(require_admin),
+) -> dict[str, Any]:
+    """Enable or disable SMS for a client after A2P 10DLC registration.
+
+    SMS defaults to disabled on client creation because US carrier A2P
+    registration takes 1-4 weeks.  Admin flips this flag once registration
+    is confirmed.  Optionally records provisioning notes (registration ID,
+    status, etc.) alongside the flag.
+
+    Body: {"sms_enabled": true, "provisioning_notes": "A2P approved 2026-04-20"}
+    """
+    sb = get_supabase()
+
+    update: dict[str, Any] = {
+        "sms_enabled": payload.sms_enabled,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if payload.provisioning_notes is not None:
+        update["provisioning_notes"] = payload.provisioning_notes
+
+    try:
+        resp = (
+            sb.table("clients")
+            .update(update)
+            .eq("id", client_id)
+            .execute()
+        )
+        rows: list[dict] = resp.data or []
+    except Exception as exc:
+        logger.error("Admin: sms_enabled update failed", client_id=client_id, error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to update SMS status")
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    action = "enabled" if payload.sms_enabled else "disabled"
+    logger.info(f"SMS {action} for client", client_id=client_id)
+    return {"client_id": client_id, "sms_enabled": payload.sms_enabled}

@@ -3,6 +3,7 @@ import {
   CalendarRange,
   LayoutDashboard,
   LogOut,
+  MessageSquare,
   Phone,
   Settings,
   Sparkles,
@@ -65,12 +66,13 @@ export function DashboardSidebar() {
           </nav>
 
           <div className="mt-6 space-y-3">
-            <a
-              href="/landing"
-              className="flex items-center justify-center rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/74 transition-colors hover:bg-white/[0.08] hover:text-white"
+            <NavLink
+              to="/feedback"
+              className="flex items-center justify-center gap-2 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/74 transition-colors hover:bg-white/[0.08] hover:text-white"
             >
-              Landing
-            </a>
+              <MessageSquare className="h-4 w-4" />
+              Feedback & Support
+            </NavLink>
             <button
               onClick={() => void handleSignOut()}
               className="flex w-full items-center justify-center gap-2 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/74 transition-colors hover:bg-white/[0.08] hover:text-white"

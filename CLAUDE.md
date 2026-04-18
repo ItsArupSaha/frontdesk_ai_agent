@@ -312,11 +312,10 @@ as potentially failing and handle it gracefully:
 ---
 
 ## Current status
-All 7 phases complete.
+All 7 phases complete + Phase 8 real-world hardening in progress.
 Backend tests: 131/131 passing (130 unit/integration + 1 load test)
 Frontend tests: 27/27 passing
 Last E2E: 2026-04-12 — all tests passing
-Known issues: None
 Product status: PRODUCTION READY
 
 ### Phase completion summary
@@ -327,6 +326,47 @@ Phase 4 — Agent Graph (LangGraph) — Completed
 Phase 5 — Dashboard API — Completed
 Phase 6 — Frontend React Dashboard — Completed
 Phase 7 — Multi-Client Panel + Onboarding — Completed
+Phase 8 — Real-World Hardening — In Progress (2026-04-18)
+
+### Phase 8 additions (2026-04-18)
+**SMS gating (critical):**
+- `sms_enabled` flag (default false) in clients table — SMS never fires until
+  admin confirms A2P 10DLC carrier registration complete (takes 1-4 weeks).
+- `send_booking_confirmation()`, `send_missed_call_recovery()`, and review SMS
+  all check `sms_enabled` before sending. Auto-replies to inbound SMS are unaffected.
+- Migration: 013_real_world_additions.sql
+
+**Admin panel:**
+- Completeness score (0-100%) per client: emergency phone, working hours,
+  services, Vapi ID, Twilio number, sms_enabled, Google review link, KB ingested.
+- Provisioning status badges (Voice ✓, Number ✓, SMS ⏳) per client row.
+- One-click "Enable SMS" toggle (flips sms_enabled after A2P approval).
+- Notes modal: admin scratch pad for A2P registration IDs, dates, etc.
+- One-click mailto email: pre-filled subject + body per client with provisioning status.
+- Summary stats row: total clients, active, SMS ready, avg completeness.
+- SMS activation reminder banner with honest A2P timeline.
+
+**Client settings:**
+- AI agent on/off toggle (is_ai_enabled) — instant, separate from form submit.
+  When off, calls transfer to main_phone_number immediately.
+- Bot name and main phone number fields added.
+- Knowledge base section: file upload (PDF/TXT/MD, 5 MB max) + Re-sync button.
+- `kb_last_ingested_at` timestamp shown in KB section.
+
+**Knowledge base:**
+- POST /api/dashboard/knowledge-base/upload — multipart PDF/TXT/MD upload,
+  extracts text, chunks ~500 chars with overlap, embeds via OpenAI, stores in
+  knowledge_chunks. Additive (does not wipe settings-based chunks).
+- `ingest_document_text()` added to rag_service.py.
+- pypdf + python-multipart added to requirements.txt.
+
+**New frontend pages:**
+- /feedback — mailto-based feedback/support form (bug, feature, general).
+- /payment — LemonSqueezy checkout page with pricing card and how-it-works steps.
+- "Feedback & Support" link added to DashboardSidebar.
+
+**Payment provider:** LemonSqueezy (not Stripe — Bangladesh developer account).
+Update LEMONSQUEEZY_CHECKOUT_URL in PaymentPage.tsx with real product URL.
 
 ### Key design decisions (Phase 7)
 1. Config is cached at call start — settings changes take effect on the
