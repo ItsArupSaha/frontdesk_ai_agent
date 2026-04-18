@@ -98,10 +98,10 @@ function ProvisioningBadges({ client }: { client: AdminClientSummary }) {
       </span>
       <span
         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-          client.twilio_phone_number ? "bg-emerald-500/15 text-emerald-300" : "bg-white/8 text-white/35"
+          client.vapi_phone_number ? "bg-emerald-500/15 text-emerald-300" : "bg-white/8 text-white/35"
         }`}
       >
-        {client.twilio_phone_number ? "✓" : "○"} Number
+        {client.vapi_phone_number ? "✓" : "○"} Number
       </span>
       <span
         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -129,7 +129,7 @@ function buildMailtoLink(client: AdminClientSummary): string {
     `Hi there,\n\nYour AI front-desk agent for ${client.business_name} has been set up!\n\n` +
     `Status:\n` +
     `• AI Voice Agent: ${client.vapi_assistant_id ? "✓ Active" : "⏳ Pending"}\n` +
-    `• Phone Number: ${client.twilio_phone_number ?? "Pending"}\n` +
+    `• AI Calling Number: ${client.vapi_phone_number ?? "Pending"}\n` +
     `• SMS Features: ${client.sms_enabled ? "✓ Active" : "⏳ Pending (carrier registration in progress)"}\n\n` +
     (missing
       ? `Still needed for full setup:\n${missing}\n\n`
@@ -379,9 +379,9 @@ export function AdminPanelPage() {
                       <td className="px-4 py-4">
                         <div className="font-medium text-white">{client.business_name}</div>
                         <div className="text-xs text-white/35">{client.email ?? "—"}</div>
-                        {client.twilio_phone_number ? (
+                        {client.vapi_phone_number ? (
                           <div className="mt-0.5 font-mono text-[10px] text-white/28">
-                            {client.twilio_phone_number}
+                            {client.vapi_phone_number}
                           </div>
                         ) : null}
                       </td>

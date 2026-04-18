@@ -255,17 +255,17 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {settings?.twilio_phone_number ? (
+        {settings?.vapi_phone_number ? (
           <div className="mt-5">
             {/* Big copyable number */}
             <div className="flex items-center gap-3">
               <span className="font-mono text-3xl font-semibold tracking-wide text-white">
-                {settings.twilio_phone_number}
+                {settings.vapi_phone_number}
               </span>
               <button
                 type="button"
                 onClick={async () => {
-                  await navigator.clipboard.writeText(settings.twilio_phone_number!);
+                  await navigator.clipboard.writeText(settings.vapi_phone_number!);
                   setNumberCopied(true);
                   setTimeout(() => setNumberCopied(false), 2500);
                 }}

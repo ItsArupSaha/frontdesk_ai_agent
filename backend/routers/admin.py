@@ -38,6 +38,7 @@ class ClientSummary(BaseModel):
     email: str | None
     is_active: bool
     sms_enabled: bool
+    vapi_phone_number: str | None
     twilio_phone_number: str | None
     vapi_assistant_id: str | None
     completeness_score: int  # 0-100
@@ -89,7 +90,7 @@ async def list_clients(
             sb.table("clients")
             .select(
                 "id,business_name,email,is_active,sms_enabled,"
-                "twilio_phone_number,vapi_assistant_id,provisioning_notes,"
+                "vapi_phone_number,twilio_phone_number,vapi_assistant_id,provisioning_notes,"
                 "emergency_phone_number,working_hours,services_offered,"
                 "google_review_link,kb_last_ingested_at"
             )
@@ -155,7 +156,8 @@ async def list_clients(
             "Working hours set": bool(client.get("working_hours")),
             "Services listed": bool(client.get("services_offered")),
             "AI agent provisioned": bool(client.get("vapi_assistant_id")),
-            "Phone number provisioned": bool(client.get("twilio_phone_number")),
+            "Calling number set": bool(client.get("vapi_phone_number")),
+            "SMS number provisioned": bool(client.get("twilio_phone_number")),
             "SMS activated (A2P)": bool(client.get("sms_enabled")),
             "Google review link": bool(client.get("google_review_link")),
             "Knowledge base ingested": bool(client.get("kb_last_ingested_at")),
@@ -169,6 +171,7 @@ async def list_clients(
                 email=client.get("email"),
                 is_active=client.get("is_active", True),
                 sms_enabled=bool(client.get("sms_enabled", False)),
+                vapi_phone_number=client.get("vapi_phone_number"),
                 twilio_phone_number=client.get("twilio_phone_number"),
                 vapi_assistant_id=client.get("vapi_assistant_id"),
                 completeness_score=completeness_score,

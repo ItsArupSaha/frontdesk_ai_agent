@@ -82,6 +82,7 @@ export interface ClientSettings {
   service_area_description: string;
   google_review_link: string | null;
   vapi_assistant_id: string | null;
+  vapi_phone_number: string | null;
   twilio_phone_number: string | null;
   is_active: boolean;
   fsm_type: string | null;
@@ -102,6 +103,7 @@ export interface AdminClientSummary {
   email: string | null;
   is_active: boolean;
   sms_enabled: boolean;
+  vapi_phone_number: string | null;
   twilio_phone_number: string | null;
   vapi_assistant_id: string | null;
   completeness_score: number;

@@ -219,3 +219,132 @@ async def delete_assistant(assistant_id: str) -> None:
         except httpx.RequestError as exc:
             logger.error("Vapi delete_assistant network error", assistant_id=assistant_id, error=str(exc))
             raise VapiServiceError(f"Vapi network error: {exc}") from exc
+
+
+async def buy_phone_number(
+    area_code: str,
+    assistant_id: str,
+    client_id: str,
+    business_name: str,
+) -> tuple[str, str]:
+    """Buy a Vapi-native phone number and link it to an assistant.
+
+    Vapi manages the number end-to-end (telephony, inbound routing, STT/TTS).
+    No Twilio credentials needed here — Twilio is used separately for SMS only.
+
+    Tries the requested area code first. If Vapi has no inventory there,
+    falls back to buying any available US number.
+
+    Args:
+        area_code: 3-digit US area code (e.g. "216").
+        assistant_id: Vapi assistant ID to link to this number.
+        client_id: Internal client UUID (for logging).
+        business_name: Used as the Vapi phone label.
+
+    Returns:
+        Tuple of (vapi_phone_id, phone_number_e164).
+        Store vapi_phone_id for rollback via delete_phone_number().
+
+    Raises:
+        VapiServiceError: on any API error or no number available.
+    """
+    async with httpx.AsyncClient(timeout=30) as http:
+        # Try requested area code first.
+        for attempt_payload in [
+            {
+                "provider": "vapi",
+                "areaCode": area_code,
+                "assistantId": assistant_id,
+                "name": f"{business_name} Line",
+            },
+            # Fallback: no area code constraint — any available US number.
+            {
+                "provider": "vapi",
+                "assistantId": assistant_id,
+                "name": f"{business_name} Line",
+            },
+        ]:
+            try:
+                resp = await http.post(
+                    f"{_VAPI_BASE}/phone-number",
+                    headers=_headers(),
+                    json=attempt_payload,
+                )
+                if resp.status_code == 400 and "areaCode" in attempt_payload:
+                    # No inventory in this area code — try without constraint.
+                    logger.info(
+                        "Vapi: no number in area code, trying any US number",
+                        area_code=area_code,
+                        client_id=client_id,
+                    )
+                    continue
+                resp.raise_for_status()
+                break
+            except httpx.HTTPStatusError as exc:
+                if "areaCode" in attempt_payload:
+                    # Will retry without area code.
+                    continue
+                logger.error(
+                    "Vapi buy_phone_number failed",
+                    client_id=client_id,
+                    status=exc.response.status_code,
+                    body=exc.response.text[:500],
+                )
+                raise VapiServiceError(
+                    f"Vapi phone purchase error {exc.response.status_code}: {exc.response.text[:200]}"
+                ) from exc
+            except httpx.RequestError as exc:
+                logger.error("Vapi buy_phone_number network error", client_id=client_id, error=str(exc))
+                raise VapiServiceError(f"Vapi network error: {exc}") from exc
+        else:
+            raise VapiServiceError(
+                f"Vapi has no available numbers for area code {area_code} or any fallback"
+            )
+
+    data = resp.json()
+    vapi_phone_id: str | None = data.get("id")
+    phone_number: str | None = data.get("number")
+    if not vapi_phone_id or not phone_number:
+        raise VapiServiceError(f"Vapi phone-number response missing fields: {data}")
+
+    logger.info(
+        "Vapi phone number purchased",
+        client_id=client_id,
+        phone=phone_number,
+        vapi_phone_id=vapi_phone_id,
+        assistant_id=assistant_id,
+    )
+    return vapi_phone_id, phone_number
+
+
+async def delete_phone_number(vapi_phone_id: str) -> None:
+    """Delete a Vapi-native phone number (used during onboarding rollback).
+
+    Releases the number back to Vapi's pool. No effect on Twilio.
+
+    Args:
+        vapi_phone_id: Vapi phone number ID returned by buy_phone_number.
+
+    Raises:
+        VapiServiceError: on any API error.
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            resp = await client.delete(
+                f"{_VAPI_BASE}/phone-number/{vapi_phone_id}",
+                headers=_headers(),
+            )
+            resp.raise_for_status()
+            logger.info("Vapi phone number deleted", vapi_phone_id=vapi_phone_id)
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "Vapi delete_phone_number failed",
+                vapi_phone_id=vapi_phone_id,
+                status=exc.response.status_code,
+            )
+            raise VapiServiceError(
+                f"Vapi phone delete error {exc.response.status_code}: {exc.response.text[:200]}"
+            ) from exc
+        except httpx.RequestError as exc:
+            logger.error("Vapi delete_phone_number network error", vapi_phone_id=vapi_phone_id, error=str(exc))
+            raise VapiServiceError(f"Vapi network error: {exc}") from exc

@@ -14,9 +14,10 @@ Steps:
   2. Create Supabase auth user + send password-reset email
   3. Insert clients row in DB
   4. Create Vapi assistant
-  5. Provision Twilio phone number
-  6. Ingest knowledge base (non-critical)
-  7. Return success payload
+  5. Buy Vapi-native phone number + link to assistant (voice calls)
+  6. Provision Twilio phone number (SMS only)
+  7. Ingest knowledge base (non-critical)
+  8. Return success payload
 """
 from __future__ import annotations
 
@@ -188,7 +189,9 @@ async def create_client(request: Request, payload: ClientCreatePayload) -> dict[
     sb = get_supabase()
     user_id: str | None = None
     vapi_assistant_id: str | None = None
-    twilio_phone_number: str | None = None
+    vapi_phone_id: str | None = None       # Vapi-native number ID (for rollback)
+    vapi_phone_number: str | None = None   # E.164 Vapi calling number
+    twilio_phone_number: str | None = None  # Twilio number for SMS only
 
     client_config = {
         "business_name": payload.business_name,
@@ -245,6 +248,7 @@ async def create_client(request: Request, payload: ClientCreatePayload) -> dict[
             # No 'role' column — clients table is for client businesses only.
             # Admin identity lives in the separate 'admins' table.
             "vapi_assistant_id": None,
+            "vapi_phone_number": None,
             "twilio_phone_number": None,
             "fsm_type": payload.fsm_type,
             "jobber_api_key": payload.jobber_api_key or "",
@@ -278,7 +282,38 @@ async def create_client(request: Request, payload: ClientCreatePayload) -> dict[
         raise HTTPException(status_code=500, detail=f"Failed to create Vapi assistant: {exc}")
 
     # -----------------------------------------------------------------------
-    # Step 5: Provision Twilio phone number
+    # Step 5: Buy Vapi-native phone number and link to assistant
+    #
+    # Vapi manages this number end-to-end (telephony, inbound call routing,
+    # STT, TTS). No Twilio credentials involved here.
+    # The client forwards their existing business number to this Vapi number.
+    # -----------------------------------------------------------------------
+    try:
+        from backend.services.vapi_service import buy_phone_number, VapiServiceError
+        vapi_phone_id, vapi_phone_number = await buy_phone_number(
+            area_code=payload.area_code,
+            assistant_id=vapi_assistant_id,
+            client_id=user_id,
+            business_name=payload.business_name,
+        )
+        sb.table("clients").update(
+            {"vapi_phone_number": vapi_phone_number}
+        ).eq("id", user_id).execute()
+        logger.info("Vapi phone number bought", client_id=user_id, phone=vapi_phone_number)
+    except Exception as exc:
+        logger.error("Step 5 failed: Vapi phone purchase", client_id=user_id, error=str(exc))
+        _rollback_vapi_assistant(vapi_assistant_id)
+        _rollback_db_client(sb, user_id)
+        _rollback_supabase_user(sb, user_id)
+        raise HTTPException(status_code=500, detail=f"Failed to buy AI calling number: {exc}")
+
+    # -----------------------------------------------------------------------
+    # Step 6: Provision Twilio phone number (SMS only)
+    #
+    # This number is used exclusively for outbound SMS — booking confirmations,
+    # reminders, missed-call recovery, and review requests.
+    # Clients never share this number with customers; only the Vapi number is
+    # forwarded to.  SMS stays disabled until A2P 10DLC registration completes.
     # -----------------------------------------------------------------------
     try:
         from backend.services.twilio_service import provision_number, TwilioProvisionError
@@ -286,45 +321,46 @@ async def create_client(request: Request, payload: ClientCreatePayload) -> dict[
         sb.table("clients").update(
             {"twilio_phone_number": twilio_phone_number}
         ).eq("id", user_id).execute()
-        logger.info("Twilio number provisioned", client_id=user_id, phone=twilio_phone_number)
+        logger.info("Twilio SMS number provisioned", client_id=user_id, phone=twilio_phone_number)
     except Exception as exc:
-        logger.error("Step 5 failed: Twilio provisioning", client_id=user_id, error=str(exc))
+        logger.error("Step 6 failed: Twilio provisioning", client_id=user_id, error=str(exc))
+        _rollback_vapi_phone(vapi_phone_id)
         _rollback_vapi_assistant(vapi_assistant_id)
         _rollback_db_client(sb, user_id)
         _rollback_supabase_user(sb, user_id)
-        raise HTTPException(status_code=500, detail=f"Failed to provision phone number: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to provision SMS number: {exc}")
 
     # -----------------------------------------------------------------------
-    # Step 6: Ingest knowledge base (non-critical)
+    # Step 7: Ingest knowledge base (non-critical)
     # -----------------------------------------------------------------------
     try:
         from backend.services.rag_service import ingest_client_knowledge
         await ingest_client_knowledge(user_id, client_config)
         logger.info("Knowledge base ingested", client_id=user_id)
     except Exception as exc:
-        # RAG failure is non-critical — client can still use the product.
-        # Re-ingest from Settings page later.
         logger.warning(
-            "Step 6: RAG ingestion failed (non-critical, can re-ingest from Settings)",
+            "Step 7: RAG ingestion failed (non-critical, can re-ingest from Settings)",
             client_id=user_id,
             error=str(exc),
         )
 
     # -----------------------------------------------------------------------
-    # Step 7: Return success
+    # Step 8: Return success
     # -----------------------------------------------------------------------
     logger.info(
         "Client onboarding complete",
         client_id=user_id,
-        phone_number=twilio_phone_number,
+        vapi_phone=vapi_phone_number,
+        twilio_phone=twilio_phone_number,
     )
     return {
         "client_id": user_id,
-        "phone_number": twilio_phone_number,
+        "phone_number": vapi_phone_number,
         "setup_complete": True,
         "next_step": "forward_calls_instruction",
         "message": (
-            f"Agent is live! Forward calls to {twilio_phone_number}. "
+            f"Agent is live! Have the client forward their business number to "
+            f"{vapi_phone_number} for AI call handling. "
             f"An email has been sent to {payload.email} to set their password."
         ),
     }
@@ -355,6 +391,40 @@ def _rollback_db_client(sb: Any, client_id: str | None) -> None:
         logger.info("Rollback: DB client record deleted", client_id=client_id)
     except Exception as exc:
         logger.error("Rollback: failed to delete DB client", client_id=client_id, error=str(exc))
+
+
+def _rollback_vapi_phone(vapi_phone_id: str | None) -> None:
+    """Delete a Vapi-native phone number during rollback (best-effort, fire-and-forget)."""
+    if not vapi_phone_id:
+        return
+    import asyncio
+    try:
+        from backend.services.vapi_service import delete_phone_number
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(delete_phone_number(vapi_phone_id))
+        else:
+            loop.run_until_complete(delete_phone_number(vapi_phone_id))
+        logger.info("Rollback: Vapi phone delete initiated", vapi_phone_id=vapi_phone_id)
+    except Exception as exc:
+        logger.error("Rollback: failed to delete Vapi phone", vapi_phone_id=vapi_phone_id, error=str(exc))
+
+
+def _rollback_twilio_number(phone_number: str | None) -> None:
+    """Release a Twilio number during rollback (best-effort, fire-and-forget)."""
+    if not phone_number:
+        return
+    import asyncio
+    try:
+        from backend.services.twilio_service import release_number
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(release_number(phone_number))
+        else:
+            loop.run_until_complete(release_number(phone_number))
+        logger.info("Rollback: Twilio number release initiated", phone_number=phone_number)
+    except Exception as exc:
+        logger.error("Rollback: failed to release Twilio number", phone_number=phone_number, error=str(exc))
 
 
 def _rollback_vapi_assistant(assistant_id: str | None) -> None:

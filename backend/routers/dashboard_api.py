@@ -422,7 +422,7 @@ async def get_settings(
                 "id,business_name,bot_name,emergency_phone_number,main_phone_number,"
                 "is_ai_enabled,sms_enabled,timezone,working_hours,services_offered,"
                 "service_area_description,google_review_link,"
-                "vapi_assistant_id,twilio_phone_number,is_active,"
+                "vapi_assistant_id,vapi_phone_number,twilio_phone_number,is_active,"
                 "fsm_type,created_at,updated_at,kb_last_ingested_at"
             )
             .eq("id", client_id)
