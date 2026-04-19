@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # In local dev:  your ngrok URL (https://xxxx.ngrok.io)
     vapi_webhook_base_url: str = "http://localhost:8000"
 
+    # LemonSqueezy — payment webhook signature verification
+    lemon_squeezy_webhook_secret: str = ""
+
     model_config = SettingsConfigDict(env_file=os.path.join(Path(__file__).parent, ".env"), env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

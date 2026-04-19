@@ -1,4 +1,5 @@
 import { CheckCircle2, Zap, Phone, MessageSquare, BarChart2, Shield } from "lucide-react";
+import { Link } from "react-router-dom";
 
 // Replace this URL with your actual LemonSqueezy product/checkout URL.
 const LEMONSQUEEZY_CHECKOUT_URL = "https://arupsaha.lemonsqueezy.com/buy/YOUR_PRODUCT_ID";
@@ -68,6 +69,16 @@ export default function PaymentPage() {
             Subscribe — $150/mo
           </a>
           <p className="mt-3 text-xs text-white/30">Secure payment via LemonSqueezy · Cancel anytime</p>
+
+          <div className="mt-4 border-t border-white/8 pt-4">
+            <p className="text-xs text-white/35 mb-2">Already subscribed?</p>
+            <Link
+              to="/onboarding"
+              className="flex w-full items-center justify-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/10 py-3 text-sm font-medium text-emerald-200 transition-colors hover:bg-emerald-500/18"
+            >
+              Set Up My Account →
+            </Link>
+          </div>
         </div>
 
         {/* How it works */}

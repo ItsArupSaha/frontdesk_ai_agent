@@ -173,6 +173,7 @@ def send_missed_call_recovery(
     caller_number: str,
     business_name: str,
     client_id: str,
+    calling_number: str | None = None,
 ) -> dict:
     """Send a missed-call recovery SMS to a caller who hung up without booking.
 
@@ -180,6 +181,8 @@ def send_missed_call_recovery(
         caller_number: Caller's phone number in E.164 format.
         business_name: Display name of the client business.
         client_id: Internal client UUID.
+        calling_number: The business's AI calling number (Vapi number) to include
+            in the message so the customer knows how to call back.
 
     Returns:
         Result dict from send_sms.
@@ -191,8 +194,14 @@ def send_missed_call_recovery(
         )
         return {"success": False, "error": "sms_not_enabled"}
 
-    message = (
-        f"Hi! We missed your call at {business_name}. Still need help? "
-        f"Reply here and we'll get back to you shortly."
-    )
+    if calling_number:
+        message = (
+            f"Hi, we're sorry for any inconvenience during your recent call with {business_name}. "
+            f"Please call us back at {calling_number} and we'll be happy to assist you."
+        )
+    else:
+        message = (
+            f"Hi, we're sorry for any inconvenience during your recent call with {business_name}. "
+            f"Please give us a call back and we'll be happy to assist you."
+        )
     return send_sms(caller_number, message, client_id)

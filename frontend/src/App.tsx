@@ -21,6 +21,7 @@ const AdminPanelPage = lazy(() =>
   import("./pages/AdminPanel").then((module) => ({ default: module.AdminPanelPage })),
 );
 const ClientOnboardingPage = lazy(() => import("./pages/ClientOnboarding"));
+const PublicOnboardingPage = lazy(() => import("./pages/PublicOnboarding"));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
 const PaymentPage = lazy(() => import("./pages/PaymentPage"));
 
@@ -105,6 +106,7 @@ export default function App() {
             </AdminRoute>
           }
         />
+        <Route path="/onboarding" element={<PublicOnboardingPage />} />
         <Route path="/feedback" element={<FeedbackPage />} />
         <Route path="/payment" element={<PaymentPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

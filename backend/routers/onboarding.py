@@ -3,27 +3,25 @@ Client onboarding routes.
 
 Handles:
   1. Google OAuth2 flow for connecting a client's Google Calendar.
-  2. POST /api/clients/create — full 7-step client creation with rollback.
+  2. POST /api/onboarding/submit — public self-service form submission (creates
+     a pending client record, no provisioning yet).
+  3. POST /api/clients/create — full 7-step client creation with rollback (admin
+     use, or called internally by the activate endpoint).
 
-The client creation endpoint runs steps IN ORDER. If any critical step fails,
-it rolls back everything created so far and returns a clear error. RAG ingestion
-(step 6) is non-critical — failure is logged but does NOT trigger rollback.
+Self-service flow:
+  Client fills form → POST /api/onboarding/submit → pending record in DB →
+  Admin reviews in panel → POST /api/admin/clients/{id}/activate →
+  Provisioning runs (Supabase user + Vapi + Twilio) → invite email sent.
 
-Steps:
-  1. Validate input
-  2. Create Supabase auth user + send password-reset email
-  3. Insert clients row in DB
-  4. Create Vapi assistant
-  5. Buy Vapi-native phone number + link to assistant (voice calls)
-  6. Provision Twilio phone number (SMS only)
-  7. Ingest knowledge base (non-critical)
-  8. Return success payload
+The activate endpoint (in admin.py) reuses the provisioning helpers defined
+at the bottom of this module.
 """
 from __future__ import annotations
 
 import re
 import secrets
 import string
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -162,6 +160,123 @@ def _generate_temp_password(length: int = 16) -> str:
     """
     alphabet = string.ascii_letters + string.digits + "!@#$%"
     return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+class OnboardingSubmitPayload(BaseModel):
+    """Input for POST /api/onboarding/submit — public self-service form."""
+
+    business_name: str
+    email: str
+    emergency_phone: str
+    services_offered: list[str] = []
+    working_hours: dict[str, Any] = {}
+    service_area_description: str = ""
+    area_code: str = "212"
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        """Ensure email is a valid format."""
+        if not _EMAIL_RE.match(v):
+            raise ValueError("Invalid email format")
+        return v.lower().strip()
+
+    @field_validator("emergency_phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        """Ensure emergency_phone is US E.164 format (+1XXXXXXXXXX)."""
+        if not _E164_RE.match(v):
+            raise ValueError("emergency_phone must be US E.164 format: +1XXXXXXXXXX")
+        return v
+
+    @field_validator("business_name")
+    @classmethod
+    def validate_business_name(cls, v: str) -> str:
+        """Ensure business_name is not empty."""
+        if not v.strip():
+            raise ValueError("business_name is required")
+        return v.strip()
+
+    @field_validator("area_code")
+    @classmethod
+    def validate_area_code(cls, v: str) -> str:
+        """Ensure area_code is exactly 3 digits."""
+        if not re.fullmatch(r"\d{3}", v):
+            raise ValueError("area_code must be exactly 3 digits")
+        return v
+
+
+@router.post("/api/onboarding/submit")
+@limiter.limit("5/minute")
+async def submit_onboarding(request: Request, payload: OnboardingSubmitPayload) -> dict[str, Any]:
+    """Public self-service onboarding form submission.
+
+    Creates a pending client record in the DB with no Supabase user and no
+    Vapi/Twilio provisioning. Admin reviews in the panel and clicks Activate
+    to run full provisioning.
+
+    Rate-limited to 5/minute per IP to prevent abuse.
+
+    Returns:
+        Confirmation message. The client should see "wait 30–90 minutes".
+    """
+    sb = get_supabase()
+
+    # Check for duplicate email before inserting.
+    try:
+        existing = (
+            sb.table("clients")
+            .select("id")
+            .eq("email", payload.email)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this email already exists. Please log in or contact support.",
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Onboarding: email duplicate check failed", email=payload.email, error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to process submission")
+
+    # Generate a stable UUID for this pending client.
+    # When admin activates, Supabase auth user is created with this same ID.
+    client_id = str(uuid.uuid4())
+
+    try:
+        db_row = {
+            "id": client_id,
+            "business_name": payload.business_name,
+            "email": payload.email,
+            "emergency_phone_number": payload.emergency_phone,
+            "services_offered": payload.services_offered,
+            "working_hours": payload.working_hours,
+            "service_area_description": payload.service_area_description,
+            "is_active": False,
+            "onboarding_status": "pending",
+            "sms_enabled": False,
+            "vapi_assistant_id": None,
+            "vapi_phone_number": None,
+            "twilio_phone_number": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        sb.table("clients").insert(db_row).execute()
+        logger.info("Pending client submission received", client_id=client_id, email=payload.email)
+    except Exception as exc:
+        logger.error("Onboarding submit: DB insert failed", email=payload.email, error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to save your application. Please try again.")
+
+    return {
+        "success": True,
+        "message": (
+            "We've received your application! Your AI front-desk service will be "
+            "activated within 30–90 minutes. Check your email for login instructions."
+        ),
+    }
 
 
 @router.post("/api/clients/create")

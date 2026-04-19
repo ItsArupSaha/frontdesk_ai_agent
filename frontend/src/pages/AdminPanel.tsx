@@ -7,6 +7,7 @@ import {
   impersonateClient,
   updateClientStatus,
   updateSmsEnabled,
+  activateClient,
   type AdminClientSummary,
   type ImpersonateResponse,
 } from "../lib/api";
@@ -115,6 +116,39 @@ function ProvisioningBadges({ client }: { client: AdminClientSummary }) {
 }
 
 // ---------------------------------------------------------------------------
+// Subscription / payment badge
+// ---------------------------------------------------------------------------
+
+function SubscriptionBadge({ client }: { client: AdminClientSummary }) {
+  const { subscription_status, subscription_renews_at } = client;
+  const config: Record<string, { label: string; cls: string }> = {
+    active: { label: "Paying", cls: "bg-emerald-500/15 text-emerald-300" },
+    paused: { label: "Paused", cls: "bg-amber-500/15 text-amber-300" },
+    past_due: { label: "Past Due", cls: "bg-rose-500/15 text-rose-300" },
+    cancelled: { label: "Cancelled", cls: "bg-rose-500/10 text-rose-400" },
+    expired: { label: "Expired", cls: "bg-rose-500/10 text-rose-400" },
+    none: { label: "No Sub", cls: "bg-white/8 text-white/35" },
+  };
+  const { label, cls } = config[subscription_status] ?? config["none"];
+
+  const renewsDate = subscription_renews_at
+    ? new Date(subscription_renews_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>
+      {renewsDate && subscription_status === "active" && (
+        <span className="text-[9px] text-white/30">Renews {renewsDate}</span>
+      )}
+      {renewsDate && subscription_status !== "active" && subscription_status !== "none" && (
+        <span className="text-[9px] text-rose-400/60">{subscription_status === "cancelled" ? "Ended" : "Due"} {renewsDate}</span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // One-click email helper
 // ---------------------------------------------------------------------------
 
@@ -197,6 +231,7 @@ export function AdminPanelPage() {
   // Per-client loading state — prevents shared mutation from affecting all rows.
   const [statusLoading, setStatusLoading] = useState<Record<string, boolean>>({});
   const [smsLoading, setSmsLoading] = useState<Record<string, boolean>>({});
+  const [activateLoading, setActivateLoading] = useState<Record<string, boolean>>({});
 
   const clientsQuery = useQuery<AdminClientSummary[]>({
     queryKey: ["adminClients"],
@@ -227,6 +262,19 @@ export function AdminPanelPage() {
       setActionError("Failed to update SMS status.");
     } finally {
       setSmsLoading((s) => ({ ...s, [client.id]: false }));
+    }
+  }
+
+  async function handleActivate(client: AdminClientSummary) {
+    if (activateLoading[client.id]) return;
+    setActivateLoading((s) => ({ ...s, [client.id]: true }));
+    try {
+      await activateClient(token!, client.id);
+      await qc.invalidateQueries({ queryKey: ["adminClients"] });
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Failed to activate client.");
+    } finally {
+      setActivateLoading((s) => ({ ...s, [client.id]: false }));
     }
   }
 
@@ -282,8 +330,10 @@ export function AdminPanelPage() {
 
   const clients = clientsQuery.data ?? [];
   const totalClients = clients.length;
-  const activeClients = clients.filter((c) => c.is_active).length;
+  const activeClients = clients.filter((c) => c.onboarding_status === "active" && c.is_active).length;
+  const pendingClients = clients.filter((c) => c.onboarding_status === "pending").length;
   const smsReady = clients.filter((c) => c.sms_enabled).length;
+  const payingClients = clients.filter((c) => c.subscription_status === "active").length;
   const avgCompleteness =
     clients.length > 0
       ? Math.round(clients.reduce((s, c) => s + c.completeness_score, 0) / clients.length)
@@ -330,16 +380,26 @@ export function AdminPanelPage() {
         </div>
 
         {/* Summary cards */}
-        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
           {[
             { label: "Total Clients", value: totalClients },
             { label: "Active", value: activeClients },
+            { label: "Pending Setup", value: pendingClients, highlight: pendingClients > 0 },
+            { label: "Paying", value: `${payingClients} / ${totalClients}` },
             { label: "SMS Ready", value: `${smsReady} / ${totalClients}` },
-            { label: "Avg Completeness", value: `${avgCompleteness}%` },
           ].map((card) => (
-            <div key={card.label} className="rounded-[24px] border border-white/10 bg-white/[0.03] p-5">
+            <div
+              key={card.label}
+              className={`rounded-[24px] border p-5 ${
+                "highlight" in card && card.highlight
+                  ? "border-amber-500/25 bg-amber-500/8"
+                  : "border-white/10 bg-white/[0.03]"
+              }`}
+            >
               <p className="text-[10px] uppercase tracking-[0.22em] text-white/38">{card.label}</p>
-              <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">{card.value}</p>
+              <p className={`mt-2 text-2xl font-semibold tracking-[-0.04em] ${"highlight" in card && card.highlight ? "text-amber-200" : "text-white"}`}>
+                {card.value}
+              </p>
             </div>
           ))}
         </div>
@@ -360,11 +420,12 @@ export function AdminPanelPage() {
         ) : (
           <div className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03]">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1100px] text-sm">
+              <table className="w-full min-w-[1200px] text-sm">
                 <thead>
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.22em] text-white/35">
                     <th className="px-4 py-4">Business</th>
                     <th className="px-4 py-4">Status</th>
+                    <th className="px-4 py-4">Payment</th>
                     <th className="px-4 py-4">Provisioning</th>
                     <th className="px-4 py-4">Completeness</th>
                     <th className="px-4 py-4">Calls / Mo</th>
@@ -387,15 +448,25 @@ export function AdminPanelPage() {
                       </td>
 
                       <td className="px-4 py-4">
-                        <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-                            client.is_active
-                              ? "bg-emerald-500/15 text-emerald-200"
-                              : "bg-rose-500/15 text-rose-200"
-                          }`}
-                        >
-                          {client.is_active ? "Active" : "Suspended"}
-                        </span>
+                        {client.onboarding_status === "pending" ? (
+                          <span className="inline-flex rounded-full bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-200">
+                            Pending Setup
+                          </span>
+                        ) : (
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                              client.is_active
+                                ? "bg-emerald-500/15 text-emerald-200"
+                                : "bg-rose-500/15 text-rose-200"
+                            }`}
+                          >
+                            {client.is_active ? "Active" : "Suspended"}
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-4 py-4">
+                        <SubscriptionBadge client={client} />
                       </td>
 
                       <td className="px-4 py-4">
@@ -414,30 +485,45 @@ export function AdminPanelPage() {
 
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap items-center gap-2">
-                          {/* View dashboard */}
-                          <button
-                            onClick={() => void handleViewDashboard(client)}
-                            className="rounded-full border border-violet-400/25 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-100 hover:bg-violet-500/18"
-                          >
-                            View
-                          </button>
+                          {/* Activate pending client */}
+                          {client.onboarding_status === "pending" && (
+                            <button
+                              onClick={() => void handleActivate(client)}
+                              disabled={activateLoading[client.id]}
+                              className="rounded-full border border-emerald-400/30 bg-emerald-500/12 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+                            >
+                              {activateLoading[client.id] ? "Activating…" : "Activate"}
+                            </button>
+                          )}
 
-                          {/* Suspend / Reactivate */}
-                          <button
-                            onClick={() => void handleToggleStatus(client)}
-                            disabled={statusLoading[client.id]}
-                            className={`rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
-                              client.is_active
-                                ? "bg-rose-500/12 text-rose-200 hover:bg-rose-500/20"
-                                : "bg-emerald-500/12 text-emerald-200 hover:bg-emerald-500/20"
-                            }`}
-                          >
-                            {statusLoading[client.id]
-                              ? "…"
-                              : client.is_active
-                                ? "Suspend"
-                                : "Reactivate"}
-                          </button>
+                          {/* View dashboard — only for active clients */}
+                          {client.onboarding_status !== "pending" && (
+                            <button
+                              onClick={() => void handleViewDashboard(client)}
+                              className="rounded-full border border-violet-400/25 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-100 hover:bg-violet-500/18"
+                            >
+                              View
+                            </button>
+                          )}
+
+                          {/* Suspend / Reactivate — only for provisioned clients */}
+                          {client.onboarding_status !== "pending" && (
+                            <button
+                              onClick={() => void handleToggleStatus(client)}
+                              disabled={statusLoading[client.id]}
+                              className={`rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+                                client.is_active
+                                  ? "bg-rose-500/12 text-rose-200 hover:bg-rose-500/20"
+                                  : "bg-emerald-500/12 text-emerald-200 hover:bg-emerald-500/20"
+                              }`}
+                            >
+                              {statusLoading[client.id]
+                                ? "…"
+                                : client.is_active
+                                  ? "Suspend"
+                                  : "Reactivate"}
+                            </button>
+                          )}
 
                           {/* SMS toggle — per-client isolated */}
                           <button
@@ -486,7 +572,7 @@ export function AdminPanelPage() {
                   ))}
                   {clients.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-white/35">
+                      <td colSpan={9} className="px-4 py-10 text-center text-white/35">
                         No clients yet. Click &ldquo;Add Client&rdquo; to get started.
                       </td>
                     </tr>

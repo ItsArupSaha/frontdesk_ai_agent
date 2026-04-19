@@ -220,32 +220,74 @@ async def vapi_webhook(request: Request) -> dict:
 
             if phone_num and duration_seconds > missed_call_threshold and not skip_recovery:
                 try:
-                    # Resolve business name from client record.
+                    # Resolve business name and calling number from client record.
                     business_name = "our team"
+                    vapi_calling_number: str | None = None
                     lookup_filter = (
                         supabase.table("clients")
-                        .select("id, business_name")
+                        .select("id, business_name, vapi_phone_number")
                         .eq("id", client_id_for_sms)
                         .limit(1)
                     ) if client_id_for_sms else (
                         supabase.table("clients")
-                        .select("id, business_name")
+                        .select("id, business_name, vapi_phone_number")
                         .eq("is_active", True)
                         .limit(1)
                     )
                     client_res = lookup_filter.execute()
                     if client_res.data:
                         business_name = client_res.data[0].get("business_name", "our team")
+                        vapi_calling_number = client_res.data[0].get("vapi_phone_number")
                         if not client_id_for_sms:
                             client_id_for_sms = str(client_res.data[0].get("id", ""))
 
-                    # Queue the missed-call recovery SMS via reminders_queue
-                    # (scheduler processes it within 2 minutes).
-                    if client_id_for_sms:
-                        recovery_msg = (
-                            f"Hi! We missed your call at {business_name}. "
-                            f"Still need help? Reply here and we'll get back to you shortly."
+                    # Deduplication: send at most 1 recovery SMS per phone number per 24 hours.
+                    # Prevents spam if caller dials multiple short calls in the same day.
+                    already_sent = False
+                    if client_id_for_sms and phone_num:
+                        cutoff_24h = (
+                            datetime.now(timezone.utc) - timedelta(hours=24)
+                        ).isoformat()
+                        try:
+                            dedup_res = (
+                                supabase.table("reminders_queue")
+                                .select("id")
+                                .eq("client_id", client_id_for_sms)
+                                .eq("type", "missed_call_recovery")
+                                .eq("to_number", phone_num)
+                                .gte("created_at", cutoff_24h)
+                                .limit(1)
+                                .execute()
+                            )
+                            already_sent = bool(dedup_res.data)
+                        except Exception:
+                            pass  # Dedup check is best-effort; if it fails, send anyway
+
+                    if already_sent:
+                        logger.info(
+                            "Missed-call recovery skipped — already sent within 24h",
+                            call_id=call_id,
+                            phone=phone_num,
                         )
+                    elif client_id_for_sms:
+                        # Build professional message with business name and calling number.
+                        if vapi_calling_number:
+                            formatted_num = vapi_calling_number
+                        else:
+                            formatted_num = None
+
+                        if formatted_num:
+                            recovery_msg = (
+                                f"Hi, we're sorry for any inconvenience during your recent call with "
+                                f"{business_name}. Please call us back at {formatted_num} "
+                                f"and we'll be happy to assist you."
+                            )
+                        else:
+                            recovery_msg = (
+                                f"Hi, we're sorry for any inconvenience during your recent call with "
+                                f"{business_name}. Please give us a call back and we'll be happy to assist you."
+                            )
+
                         scheduled_for = (
                             datetime.now(timezone.utc) + timedelta(minutes=2)
                         ).isoformat()
@@ -274,6 +316,7 @@ async def vapi_webhook(request: Request) -> dict:
                                 caller_number=phone_num,
                                 business_name=business_name,
                                 client_id=client_id_for_sms,
+                                calling_number=vapi_calling_number,
                             )
                     else:
                         # No client_id — send directly (queue FK would fail)
@@ -282,6 +325,7 @@ async def vapi_webhook(request: Request) -> dict:
                             caller_number=phone_num,
                             business_name=business_name,
                             client_id=client_id_for_sms,
+                            calling_number=vapi_calling_number,
                         )
                 except Exception as exc:
                     logger.error("Missed-call recovery failed", call_id=call_id, error=str(exc))

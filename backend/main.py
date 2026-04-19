@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from backend.utils.limiter import limiter
-from backend.routers import vapi_webhook, onboarding, sms_webhook
+from backend.routers import vapi_webhook, onboarding, sms_webhook, lemon_squeezy_webhook
 from backend.routers import dashboard_api
 from backend.routers.dashboard_api import auth_router
 from backend.routers import admin as admin_router
@@ -72,6 +72,7 @@ app.add_middleware(
 
 app.include_router(vapi_webhook.router, prefix="/webhook")
 app.include_router(sms_webhook.router, prefix="/webhook")
+app.include_router(lemon_squeezy_webhook.router)
 app.include_router(onboarding.router)
 app.include_router(auth_router)
 app.include_router(dashboard_api.router)

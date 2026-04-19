@@ -616,6 +616,33 @@ async def update_booking_status(
                 logger.error("Unexpected error deleting calendar event", error=str(exc))
 
     elif status == "completed":
+        # Mark Google Calendar event as done — change title to "[Done] ..."
+        # and color to graphite so it's visually distinct on the calendar.
+        if google_event_id:
+            try:
+                from backend.services.calendar_service import (
+                    update_event_title,
+                    CalendarNotConnectedError,
+                    CalendarBookingError,
+                )
+                # Fetch original event title from the booking row.
+                booking_title_resp = (
+                    sb.table("bookings")
+                    .select("appointment_notes")
+                    .eq("id", booking_id)
+                    .limit(1)
+                    .execute()
+                )
+                original_notes = ""
+                if booking_title_resp.data:
+                    original_notes = booking_title_resp.data[0].get("appointment_notes") or ""
+                done_title = f"[Done] {caller_name}" + (f" — {original_notes}" if original_notes else "")
+                await update_event_title(client_id, google_event_id, done_title, color_id="8")
+            except CalendarNotConnectedError:
+                logger.info("Calendar not connected — event title not updated", client_id=client_id)
+            except (CalendarBookingError, Exception) as exc:
+                logger.error("Failed to update calendar event on completion", error=str(exc))
+
         # Job is done — send review request SMS now.
         if caller_phone:
             try:

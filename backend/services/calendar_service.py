@@ -434,6 +434,73 @@ async def delete_event(client_id: str, event_id: str) -> None:
         raise CalendarBookingError(f"Failed to delete calendar event: {exc}") from exc
 
 
+async def update_event_title(
+    client_id: str,
+    event_id: str,
+    new_title: str,
+    color_id: str | None = None,
+) -> None:
+    """Patch a Google Calendar event's summary (title) and optionally its color.
+
+    Used when a booking is marked as completed — the event title gets a
+    "[Done]" prefix and the color changes to graphite (8) so it's visually
+    distinct on the calendar.
+
+    Silently succeeds if the event is already gone (404).
+
+    Args:
+        client_id: Internal client UUID.
+        event_id: Google Calendar event ID.
+        new_title: New summary string for the event.
+        color_id: Optional Google Calendar color ID ('8' = graphite/grey).
+
+    Raises:
+        CalendarNotConnectedError: If the client has no calendar connected.
+        CalendarBookingError: On unexpected API errors.
+    """
+    creds = _get_credentials(client_id)
+
+    supabase = get_supabase()
+    client_row = (
+        supabase.table("clients")
+        .select("google_calendar_id")
+        .eq("id", client_id)
+        .limit(1)
+        .execute()
+    )
+    calendar_id = "primary"
+    if client_row.data:
+        calendar_id = client_row.data[0].get("google_calendar_id") or "primary"
+
+    body: dict = {"summary": new_title}
+    if color_id is not None:
+        body["colorId"] = color_id
+
+    try:
+        service = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: build("calendar", "v3", credentials=creds, cache_discovery=False),
+        )
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: service.events().patch(
+                calendarId=calendar_id, eventId=event_id, body=body
+            ).execute(),
+        )
+        logger.info(
+            "Calendar event updated",
+            client_id=client_id,
+            event_id=event_id,
+            new_title=new_title,
+        )
+    except HttpError as exc:
+        if exc.resp.status == 404:
+            logger.info("Calendar event not found on update (ok)", client_id=client_id, event_id=event_id)
+            return
+        logger.error("Calendar event update failed", client_id=client_id, event_id=event_id, error=str(exc))
+        raise CalendarBookingError(f"Failed to update calendar event: {exc}") from exc
+
+
 async def book_appointment(
     client_id: str,
     slot: dict,

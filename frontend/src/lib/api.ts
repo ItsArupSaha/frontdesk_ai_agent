@@ -102,6 +102,7 @@ export interface AdminClientSummary {
   business_name: string;
   email: string | null;
   is_active: boolean;
+  onboarding_status: "pending" | "active" | "suspended";
   sms_enabled: boolean;
   vapi_phone_number: string | null;
   twilio_phone_number: string | null;
@@ -113,6 +114,31 @@ export interface AdminClientSummary {
   last_call_at: string | null;
   bookings_this_month: number;
   monthly_cost_estimate: number;
+  subscription_status: "none" | "active" | "paused" | "past_due" | "cancelled" | "expired";
+  subscription_renews_at: string | null;
+}
+
+export interface OnboardingSubmitPayload {
+  business_name: string;
+  email: string;
+  emergency_phone: string;
+  services_offered: string[];
+  working_hours: Record<string, { open: string; close: string } | null>;
+  service_area_description: string;
+  area_code: string;
+}
+
+export interface OnboardingSubmitResponse {
+  success: boolean;
+  message: string;
+}
+
+export interface ActivateClientResponse {
+  success: boolean;
+  client_id: string;
+  vapi_phone_number: string;
+  twilio_phone_number: string;
+  message: string;
 }
 
 export interface ImpersonateResponse {
@@ -274,6 +300,34 @@ export function createClient(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+async function publicFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`API ${response.status}: ${body}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export function submitOnboarding(
+  payload: OnboardingSubmitPayload,
+): Promise<OnboardingSubmitResponse> {
+  return publicFetch("/api/onboarding/submit", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function activateClient(
+  token: string,
+  clientId: string,
+): Promise<ActivateClientResponse> {
+  return apiFetch(`/api/admin/clients/${clientId}/activate`, token, { method: "POST" });
 }
 
 export function updateBookingStatus(
