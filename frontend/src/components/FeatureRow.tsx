@@ -252,28 +252,11 @@ function EmergencyDispatchVisual() {
               animate={{ scale: [0.9, 1.16, 0.9], opacity: [0.18, 0.44, 0.18] }}
               transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
             />
-              <div className="absolute left-1/2 top-[28%] h-[2px] w-[160px] -translate-x-1/2 bg-[linear-gradient(90deg,rgba(248,113,113,0),rgba(248,113,113,0.45),rgba(251,191,36,0.75),rgba(34,197,94,0.45),rgba(34,197,94,0))]" />
-              <div className="absolute left-1/2 top-[72%] h-[2px] w-[160px] -translate-x-1/2 bg-[linear-gradient(90deg,rgba(248,113,113,0),rgba(248,113,113,0.45),rgba(251,191,36,0.75),rgba(34,197,94,0.45),rgba(34,197,94,0))]" />
-              <motion.div
-                className="absolute top-[28%] h-3 w-3 rounded-full bg-rose-200 shadow-[0_0_18px_rgba(254,205,211,0.95)]"
-                animate={{ left: ["8%", "82%"] }}
-                transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-              />
-              <motion.div
-                className="absolute top-[72%] h-3 w-3 rounded-full bg-amber-200 shadow-[0_0_18px_rgba(253,230,138,0.95)]"
-                animate={{ left: ["82%", "8%"] }}
-                transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-              />
-              <motion.div
-                className="absolute left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-emerald-200 shadow-[0_0_16px_rgba(167,243,208,0.92)]"
-                animate={{ top: ["22%", "78%", "22%"] }}
-                transition={{ duration: 1.7, repeat: Infinity, ease: "easeInOut" }}
-              />
               <div className="relative flex h-24 w-24 items-center justify-center rounded-full border border-[rgba(251,191,36,0.24)] bg-[radial-gradient(circle,rgba(251,191,36,0.14),rgba(251,191,36,0.02)_64%)]">
                 <motion.div
                   className="flex h-14 w-14 items-center justify-center rounded-full border border-[rgba(251,191,36,0.3)] bg-[rgba(251,191,36,0.12)]"
-                  animate={{ rotate: [0, 10, 0, -10, 0], scale: [1, 1.06, 1] }}
-                  transition={{ duration: 2.1, repeat: Infinity, ease: "easeInOut" }}
+                  animate={{ rotate: [0, 360] }}
+                  transition={{ duration: 4.8, repeat: Infinity, ease: "linear" }}
                 >
                   <Sparkles className="h-6 w-6 text-amber-200" />
                 </motion.div>
