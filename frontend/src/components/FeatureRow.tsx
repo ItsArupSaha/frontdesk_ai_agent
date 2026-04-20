@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   CalendarDays,
@@ -214,14 +215,14 @@ function EmergencyDispatchVisual() {
         </span>
       </div>
 
-      <div className="relative z-10 mt-7 grid min-h-[260px] items-center gap-6 lg:grid-cols-[1fr_auto_1fr]">
-        <motion.div
-          animate={{ y: [0, -4, 0] }}
-          transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
-          className="relative rounded-[22px] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5 shadow-[0_22px_60px_rgba(0,0,0,0.28)]"
-        >
+        <div className="relative z-10 mt-7 grid min-h-[260px] items-center gap-6 lg:grid-cols-[1fr_auto_1fr]">
+          <motion.div
+            animate={{ y: [0, -4, 0] }}
+            transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+            className="relative w-full max-w-[228px] justify-self-center rounded-[20px] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4 shadow-[0_22px_60px_rgba(0,0,0,0.28)]"
+          >
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[rgba(248,113,113,0.22)] bg-[rgba(248,113,113,0.12)]">
+            <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[rgba(248,113,113,0.22)] bg-[rgba(248,113,113,0.12)]">
               <PhoneCall className="h-5 w-5 text-rose-200" />
             </div>
             <div>
@@ -235,46 +236,69 @@ function EmergencyDispatchVisual() {
           </div>
         </motion.div>
 
-        <div className="relative flex h-[220px] w-[140px] items-center justify-center">
-          <motion.div
-            className="absolute h-[170px] w-[170px] rounded-full border border-[rgba(248,113,113,0.12)]"
-            animate={{ scale: [0.92, 1.08, 0.92], opacity: [0.2, 0.55, 0.2] }}
-            transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <motion.div
-            className="absolute h-[120px] w-[120px] rounded-full border border-[rgba(251,191,36,0.2)]"
-            animate={{ scale: [1.08, 0.92, 1.08], opacity: [0.45, 0.2, 0.45] }}
-            transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <div className="absolute left-1/2 top-[28%] h-[2px] w-[160px] -translate-x-1/2 bg-[linear-gradient(90deg,rgba(248,113,113,0),rgba(248,113,113,0.45),rgba(251,191,36,0.75),rgba(34,197,94,0.45),rgba(34,197,94,0))]" />
-          <div className="absolute left-1/2 top-[72%] h-[2px] w-[160px] -translate-x-1/2 bg-[linear-gradient(90deg,rgba(248,113,113,0),rgba(248,113,113,0.45),rgba(251,191,36,0.75),rgba(34,197,94,0.45),rgba(34,197,94,0))]" />
-          <motion.div
-            className="absolute top-[28%] h-3 w-3 rounded-full bg-rose-200 shadow-[0_0_18px_rgba(254,205,211,0.95)]"
-            animate={{ left: ["8%", "82%"] }}
-            transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <motion.div
-            className="absolute top-[72%] h-3 w-3 rounded-full bg-amber-200 shadow-[0_0_18px_rgba(253,230,138,0.95)]"
-            animate={{ left: ["82%", "8%"] }}
-            transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <div className="relative flex h-24 w-24 items-center justify-center rounded-full border border-[rgba(251,191,36,0.24)] bg-[radial-gradient(circle,rgba(251,191,36,0.14),rgba(251,191,36,0.02)_64%)]">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full border border-[rgba(251,191,36,0.3)] bg-[rgba(251,191,36,0.12)]">
-              <Sparkles className="h-6 w-6 text-amber-200" />
+          <div className="relative flex h-[220px] w-[140px] items-center justify-center">
+            <motion.div
+              className="absolute h-[170px] w-[170px] rounded-full border border-[rgba(248,113,113,0.12)]"
+              animate={{ scale: [0.92, 1.08, 0.92], opacity: [0.2, 0.55, 0.2] }}
+              transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+            />
+            <motion.div
+              className="absolute h-[120px] w-[120px] rounded-full border border-[rgba(251,191,36,0.2)]"
+              animate={{ scale: [1.08, 0.92, 1.08], opacity: [0.45, 0.2, 0.45] }}
+              transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+            />
+            <motion.div
+              className="absolute h-[78px] w-[78px] rounded-full border border-[rgba(34,197,94,0.14)]"
+              animate={{ scale: [0.9, 1.16, 0.9], opacity: [0.18, 0.44, 0.18] }}
+              transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+            />
+              <div className="absolute left-1/2 top-[28%] h-[2px] w-[160px] -translate-x-1/2 bg-[linear-gradient(90deg,rgba(248,113,113,0),rgba(248,113,113,0.45),rgba(251,191,36,0.75),rgba(34,197,94,0.45),rgba(34,197,94,0))]" />
+              <div className="absolute left-1/2 top-[72%] h-[2px] w-[160px] -translate-x-1/2 bg-[linear-gradient(90deg,rgba(248,113,113,0),rgba(248,113,113,0.45),rgba(251,191,36,0.75),rgba(34,197,94,0.45),rgba(34,197,94,0))]" />
+              <motion.div
+                className="absolute top-[28%] h-3 w-3 rounded-full bg-rose-200 shadow-[0_0_18px_rgba(254,205,211,0.95)]"
+                animate={{ left: ["8%", "82%"] }}
+                transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+              />
+              <motion.div
+                className="absolute top-[72%] h-3 w-3 rounded-full bg-amber-200 shadow-[0_0_18px_rgba(253,230,138,0.95)]"
+                animate={{ left: ["82%", "8%"] }}
+                transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+              />
+              <motion.div
+                className="absolute left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-emerald-200 shadow-[0_0_16px_rgba(167,243,208,0.92)]"
+                animate={{ top: ["22%", "78%", "22%"] }}
+                transition={{ duration: 1.7, repeat: Infinity, ease: "easeInOut" }}
+              />
+              <div className="relative flex h-24 w-24 items-center justify-center rounded-full border border-[rgba(251,191,36,0.24)] bg-[radial-gradient(circle,rgba(251,191,36,0.14),rgba(251,191,36,0.02)_64%)]">
+                <motion.div
+                  className="flex h-14 w-14 items-center justify-center rounded-full border border-[rgba(251,191,36,0.3)] bg-[rgba(251,191,36,0.12)]"
+                  animate={{ rotate: [0, 10, 0, -10, 0], scale: [1, 1.06, 1] }}
+                  transition={{ duration: 2.1, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <Sparkles className="h-6 w-6 text-amber-200" />
+                </motion.div>
+              </div>
+            <div className="pointer-events-none absolute inset-0">
+              <motion.div
+                className="absolute left-1/2 top-1/2 h-[2px] w-[68px] origin-left bg-[linear-gradient(90deg,rgba(248,113,113,0.78),rgba(251,191,36,0))]"
+                animate={{ rotate: [12, 192, 372], opacity: [0.2, 0.85, 0.2] }}
+                transition={{ duration: 2.7, repeat: Infinity, ease: "linear" }}
+              />
+              <motion.div
+                className="absolute left-1/2 top-1/2 h-[2px] w-[58px] origin-left bg-[linear-gradient(90deg,rgba(34,197,94,0.78),rgba(34,197,94,0))]"
+                animate={{ rotate: [210, 30, -150], opacity: [0.16, 0.82, 0.16] }}
+                transition={{ duration: 2.4, repeat: Infinity, ease: "linear" }}
+              />
             </div>
           </div>
-          <div className="absolute bottom-0 rounded-full border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-3 py-1.5 text-[0.7rem] uppercase tracking-[0.22em] text-white/45">
-            AI relay
-          </div>
-        </div>
 
-        <motion.div
-          animate={{ y: [0, 4, 0] }}
-          transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
-          className="relative rounded-[22px] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5 shadow-[0_22px_60px_rgba(0,0,0,0.28)]"
-        >
+          <motion.div
+            animate={{ y: [0, 4, 0] }}
+            transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+            className="relative w-full max-w-[228px] justify-self-center rounded-[20px] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4 shadow-[0_22px_60px_rgba(0,0,0,0.28)]"
+          >
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[rgba(34,197,94,0.22)] bg-[rgba(34,197,94,0.1)]">
+            <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[rgba(34,197,94,0.22)] bg-[rgba(34,197,94,0.1)]">
               <ShieldCheck className="h-5 w-5 text-emerald-200" />
             </div>
             <div>
@@ -293,6 +317,31 @@ function EmergencyDispatchVisual() {
 }
 
 function LiveBookingVisual() {
+  const bookingDays = [
+    { short: "Su", label: "Sunday", slots: [] as string[] },
+    { short: "Mo", label: "Monday", slots: ["10:00 AM"] },
+    { short: "Tu", label: "Tuesday", slots: ["9:30 AM", "4:00 PM"] },
+    { short: "We", label: "Wednesday", slots: ["8:30 AM", "10:00 AM", "1:30 PM", "4:00 PM"] },
+    { short: "Th", label: "Thursday", slots: ["9:00 AM", "11:30 AM", "2:00 PM", "3:30 PM", "6:00 PM"] },
+    { short: "Fr", label: "Friday", slots: ["11:00 AM", "4:00 PM"] },
+    { short: "Sa", label: "Saturday", slots: ["12:30 PM"] },
+  ];
+  const [activeDay, setActiveDay] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setActiveDay((current) => (current + 1) % bookingDays.length);
+    }, 2400);
+
+    return () => window.clearInterval(timer);
+  }, [bookingDays.length]);
+
+  const currentDay = bookingDays[activeDay];
+  const bookingSlot = currentDay.slots.includes("4:00 PM")
+    ? "4:00 PM"
+    : currentDay.slots[0] ?? null;
+  const shouldScroll = currentDay.slots.length > 3;
+
   return (
     <div className="relative h-full min-h-[356px] overflow-hidden rounded-[20px] border border-[rgba(96,165,250,0.14)] bg-[radial-gradient(circle_at_top,rgba(30,64,175,0.18),rgba(10,10,14,0.98)_62%)] p-5 sm:p-6">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_15%,rgba(96,165,250,0.08),transparent_34%)]" />
@@ -320,69 +369,105 @@ function LiveBookingVisual() {
             </div>
           </div>
 
-          <div className="relative mt-5 rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(10,10,14,0.5)] px-3 py-3">
-            <div className="grid grid-cols-7 gap-2 text-center text-[0.74rem] font-medium">
-              {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
-                <div key={day} className="relative rounded-[10px] px-1 py-2 text-white/46">
-                  {day}
-                </div>
-              ))}
-            </div>
-            <motion.div
-              className="absolute top-3 h-[34px] w-[calc((100%-1.5rem)/7)] rounded-[10px] border border-[rgba(96,165,250,0.22)] bg-[rgba(96,165,250,0.16)] shadow-[0_0_24px_rgba(56,189,248,0.14)]"
-              animate={{ left: ["0.75rem", "calc(0.75rem + 14.285% )", "calc(0.75rem + 28.57% )", "calc(0.75rem + 42.855% )"] }}
-              transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
-            />
-          </div>
-
-          <div className="mt-5 space-y-3">
-            <div className="rounded-[16px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-4 py-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-white/86">10:00 AM</span>
-                <span className="rounded-full border border-[rgba(255,255,255,0.08)] px-2 py-0.5 text-[0.66rem] uppercase tracking-[0.18em] text-white/42">
-                  open
-                </span>
+            <div className="relative mt-5 rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(10,10,14,0.5)] px-3 py-3">
+              <div className="grid grid-cols-7 gap-2 text-center text-[0.74rem] font-medium">
+                {bookingDays.map((day, index) => (
+                  <div
+                    key={day.short}
+                    className={[
+                      "relative rounded-[10px] px-1 py-2 transition-colors duration-300",
+                      index === activeDay ? "text-white" : "text-white/46",
+                    ].join(" ")}
+                  >
+                    {day.short}
+                  </div>
+                ))}
               </div>
+              <motion.div
+                className="absolute top-[0.9rem] h-[28px] w-[44px] -translate-x-1/2 rounded-[8px] border border-[rgba(96,165,250,0.22)] bg-[rgba(96,165,250,0.16)] shadow-[0_0_20px_rgba(56,189,248,0.12)]"
+                animate={{ left: `calc(1.1rem + ((100% - 2.2rem) / 7) * ${activeDay} + ((100% - 2.2rem) / 14))` }}
+                transition={{ duration: 0.65, ease: "easeInOut" }}
+              />
             </div>
 
-            <motion.div
-              className="rounded-[16px] border border-[rgba(96,165,250,0.22)] bg-[rgba(96,165,250,0.12)] px-4 py-3 shadow-[0_0_28px_rgba(56,189,248,0.12)]"
-              animate={{ scale: [1, 1.02, 1], borderColor: ["rgba(96,165,250,0.22)", "rgba(34,197,94,0.22)", "rgba(96,165,250,0.22)"] }}
-              transition={{ duration: 2.1, repeat: Infinity, ease: "easeInOut" }}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-white">4:00 PM</span>
-                <motion.span
-                  className="rounded-full border border-[rgba(34,197,94,0.18)] bg-[rgba(34,197,94,0.1)] px-2 py-0.5 text-[0.66rem] uppercase tracking-[0.18em] text-emerald-100"
-                  animate={{ opacity: [0.55, 1, 0.55] }}
-                  transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+            <div className="mt-5 h-[160px] overflow-hidden">
+              {currentDay.slots.length === 0 ? (
+                <motion.div
+                  key={currentDay.short}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.45, ease: "easeOut" }}
+                  className="flex h-full items-center justify-center rounded-[16px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-4 text-center"
                 >
-                  booked
-                </motion.span>
-              </div>
-            </motion.div>
+                  <div>
+                    <p className="text-sm font-medium text-white/88">{currentDay.label}</p>
+                    <p className="mt-2 text-[0.78rem] leading-6 text-white/40">
+                      Off day. No booking slot available.
+                    </p>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key={currentDay.short}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={shouldScroll ? { opacity: 1, y: [0, -46, -46] } : { opacity: 1, y: 0 }}
+                  transition={
+                    shouldScroll
+                      ? { duration: 2.1, times: [0, 0.72, 1], ease: "easeInOut" }
+                      : { duration: 0.45, ease: "easeOut" }
+                  }
+                  className="space-y-3"
+                >
+                  {currentDay.slots.map((slot) => {
+                    const isBooked = slot === bookingSlot;
 
-            <div className="rounded-[16px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-4 py-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-white/86">6:30 PM</span>
-                <span className="rounded-full border border-[rgba(255,255,255,0.08)] px-2 py-0.5 text-[0.66rem] uppercase tracking-[0.18em] text-white/42">
-                  open
-                </span>
-              </div>
+                    return (
+                      <motion.div
+                        key={`${currentDay.short}-${slot}`}
+                        className={[
+                          "rounded-[16px] border px-4 py-3",
+                          isBooked
+                            ? "border-[rgba(96,165,250,0.22)] bg-[rgba(96,165,250,0.12)] shadow-[0_0_28px_rgba(56,189,248,0.12)]"
+                            : "border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)]",
+                        ].join(" ")}
+                        animate={isBooked ? { scale: [1, 1.02, 1], borderColor: ["rgba(96,165,250,0.22)", "rgba(34,197,94,0.22)", "rgba(96,165,250,0.22)"] } : undefined}
+                        transition={isBooked ? { duration: 1.8, repeat: Infinity, ease: "easeInOut" } : undefined}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className={isBooked ? "text-sm font-medium text-white" : "text-sm text-white/86"}>
+                            {slot}
+                          </span>
+                          <motion.span
+                            className={[
+                              "rounded-full border px-2 py-0.5 text-[0.66rem] uppercase tracking-[0.18em]",
+                              isBooked
+                                ? "border-[rgba(34,197,94,0.18)] bg-[rgba(34,197,94,0.1)] text-emerald-100"
+                                : "border-[rgba(255,255,255,0.08)] text-white/42",
+                            ].join(" ")}
+                            animate={isBooked ? { opacity: [0.55, 1, 0.55] } : undefined}
+                            transition={isBooked ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : undefined}
+                          >
+                            {isBooked ? "booked" : "open"}
+                          </motion.span>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </motion.div>
+              )}
             </div>
           </div>
-        </div>
 
-        <div className="mt-4 flex items-center justify-between rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-4 py-3">
+          <div className="mt-4 flex items-center justify-between rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[rgba(34,197,94,0.18)] bg-[rgba(34,197,94,0.08)]">
               <ShieldCheck className="h-4.5 w-4.5 text-emerald-200" />
             </div>
-            <div>
-              <p className="text-sm font-medium text-white/90">Confirmed on call</p>
-              <p className="text-[0.72rem] text-white/40">Guarded against double-booking</p>
+              <div>
+                <p className="text-sm font-medium text-white/90">Confirmed on call</p>
+                <p className="text-[0.72rem] text-white/40">Guarded against double-booking</p>
+              </div>
             </div>
-          </div>
           <motion.div
             className="h-2 w-16 rounded-full bg-[linear-gradient(90deg,#38BDF8_0%,#22C55E_100%)]"
             animate={{ opacity: [0.45, 1, 0.45], scaleX: [0.92, 1, 0.92] }}
