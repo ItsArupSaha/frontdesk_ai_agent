@@ -45,7 +45,7 @@ export function LandingPage() {
 
         <section
           id="solutions"
-          className="relative isolate overflow-hidden px-4 py-[clamp(4.5rem,8vw,7rem)] sm:px-6 lg:px-8"
+          className="relative isolate overflow-hidden px-4 pb-[clamp(1.75rem,4vw,2.75rem)] pt-[clamp(4.5rem,8vw,7rem)] sm:px-6 lg:px-8"
         >
           <SectionParticleLayer />
           <div className="relative z-10 mx-auto max-w-[1240px]">
@@ -63,9 +63,9 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="relative isolate overflow-hidden px-4 pb-[clamp(5rem,8vw,8rem)] sm:px-6 lg:px-8">
+        <section className="relative isolate overflow-hidden px-4 pb-[clamp(4rem,7vw,6rem)] sm:px-6 lg:px-8">
           <SectionParticleLayer glowClassName="bg-[radial-gradient(circle_at_center,rgba(124,58,237,0.08),transparent_56%)]" />
-          <div className="relative z-10 mx-auto flex max-w-[1240px] flex-col gap-24">
+          <div className="relative z-10 mx-auto flex max-w-[1240px] flex-col gap-16">
             <Suspense fallback={<SectionSkeleton rows={2} />}>
               {features.map((feature, index) => (
                 <FeatureRow key={feature.id} feature={feature} reverse={index % 2 === 1} />
