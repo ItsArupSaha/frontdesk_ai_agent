@@ -7,7 +7,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY; auth will not work.");
 }
 
-export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "");
+// Use sessionStorage so each browser tab has an isolated session.
+// This prevents the admin tab from being kicked out when a client
+// logs in from a different tab in the same browser window.
+// Sessions persist across page refreshes within the same tab but
+// are cleared when the tab is closed.
+export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "", {
+  auth: {
+    storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
+  },
+});
 
 export function subscribeToCallLogs(
   clientId: string,

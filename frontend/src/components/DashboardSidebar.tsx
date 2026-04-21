@@ -7,6 +7,7 @@ import {
   Phone,
   Settings,
   Sparkles,
+  BookOpen,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
@@ -17,6 +18,7 @@ const links = [
   { to: "/bookings", label: "Bookings", icon: CalendarRange },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/setup-guide", label: "Setup Guide", icon: BookOpen },
 ];
 
 export function DashboardSidebar() {

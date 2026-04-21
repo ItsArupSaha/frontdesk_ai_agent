@@ -92,7 +92,7 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
         "name": f"{business_name} Agent",
         "model": {
             "provider": "openai",
-            "model": "gpt-4o",
+            "model": "gpt-4o-mini",
             "messages": [
                 {
                     "role": "system",

@@ -24,6 +24,8 @@ const ClientOnboardingPage = lazy(() => import("./pages/ClientOnboarding"));
 const PublicOnboardingPage = lazy(() => import("./pages/PublicOnboarding"));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
 const PaymentPage = lazy(() => import("./pages/PaymentPage"));
+const SetPasswordPage = lazy(() => import("./pages/SetPassword"));
+const SetupGuidePage = lazy(() => import("./pages/SetupGuide"));
 
 function RootEntry() {
   const { user, role, loading } = useAuth();
@@ -109,6 +111,17 @@ export default function App() {
         <Route path="/onboarding" element={<PublicOnboardingPage />} />
         <Route path="/feedback" element={<FeedbackPage />} />
         <Route path="/payment" element={<PaymentPage />} />
+        <Route path="/set-password" element={<SetPasswordPage />} />
+        <Route
+          path="/setup-guide"
+          element={
+            <ProtectedRoute>
+              <AppShell>
+                <SetupGuidePage />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Suspense>

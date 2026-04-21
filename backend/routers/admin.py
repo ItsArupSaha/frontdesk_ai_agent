@@ -13,10 +13,13 @@ Routes:
 """
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.config import settings
@@ -321,26 +324,264 @@ async def update_sms_enabled(
     return {"client_id": client_id, "sms_enabled": payload.sms_enabled}
 
 
+def _sse(event: str, data: dict) -> str:
+    """Format a single Server-Sent Event line."""
+    return f"data: {json.dumps({'event': event, **data})}\n\n"
+
+
+@router.get("/clients/{client_id}/activate-stream")
+async def activate_client_stream(
+    client_id: str,
+    request: Request,
+    _admin: dict = Depends(require_admin),
+) -> StreamingResponse:
+    """Stream activation progress via SSE.
+
+    Yields JSON events:
+      {"event": "step",    "step": "...", "status": "running|done|error", "message": "..."}
+      {"event": "done",    "vapi_phone_number": "...", "client_id": "..."}
+      {"event": "error",   "message": "..."}
+
+    Frontend connects with EventSource and renders live log.
+    """
+    async def generate() -> AsyncGenerator[str, None]:
+        yield _sse("step", {"step": "init", "status": "running", "message": "Starting activation…"})
+        await asyncio.sleep(0.1)
+
+        sb = get_supabase()
+
+        # --- Fetch client ---
+        try:
+            resp = sb.table("clients").select(
+                "id,business_name,email,emergency_phone_number,services_offered,working_hours,service_area_description,onboarding_status,vapi_assistant_id,vapi_phone_number"
+            ).eq("id", client_id).limit(1).execute()
+            rows: list[dict] = resp.data or []
+        except Exception as exc:
+            yield _sse("error", {"message": f"DB lookup failed: {exc}"})
+            return
+
+        if not rows:
+            yield _sse("error", {"message": "Client not found"})
+            return
+
+        client = rows[0]
+        if client.get("onboarding_status") != "pending":
+            yield _sse("error", {"message": f"Client already '{client.get('onboarding_status')}'"})
+            return
+
+        email = client["email"]
+        business_name = client.get("business_name", "")
+        client_config = {
+            "business_name": business_name,
+            "emergency_phone_number": client.get("emergency_phone_number", ""),
+            "services_offered": client.get("services_offered") or [],
+            "working_hours": client.get("working_hours") or {},
+            "service_area_description": client.get("service_area_description", ""),
+        }
+        emergency_phone = client.get("emergency_phone_number", "+12120000000")
+        area_code = emergency_phone[2:5] if len(emergency_phone) >= 5 else "212"
+
+        from backend.routers.onboarding import (
+            _generate_temp_password, _rollback_supabase_user,
+            _rollback_vapi_assistant, _rollback_vapi_phone,
+        )
+        import httpx as _httpx
+
+        vapi_assistant_id: str | None = None
+        vapi_phone_id: str | None = None
+        vapi_phone_number: str | None = None
+        _supabase_user_existed = False
+        _assistant_valid = False
+
+        # --- Step 1: Supabase auth user ---
+        yield _sse("step", {"step": "auth", "status": "running", "message": "Creating client account…"})
+        try:
+            existing_user = sb.auth.admin.get_user_by_id(client_id)
+            if existing_user and existing_user.user:
+                _supabase_user_existed = True
+        except Exception:
+            pass
+
+        if not _supabase_user_existed:
+            try:
+                cr = sb.auth.admin.create_user({
+                    "id": client_id, "email": email,
+                    "email_confirm": True, "password": _generate_temp_password(),
+                })
+                if not cr or not cr.user:
+                    raise RuntimeError("No user returned")
+            except Exception as exc:
+                yield _sse("error", {"message": f"Failed to create auth account: {exc}"})
+                return
+
+        yield _sse("step", {"step": "auth", "status": "done", "message": f"✓ Auth account ready ({email})"})
+
+        # --- Step 2: Vapi assistant ---
+        yield _sse("step", {"step": "assistant", "status": "running", "message": "Creating AI assistant…"})
+        _existing_aid: str | None = client.get("vapi_assistant_id")
+        if _existing_aid:
+            try:
+                async with _httpx.AsyncClient(timeout=10) as _hc:
+                    _r = await _hc.get(f"https://api.vapi.ai/assistant/{_existing_aid}",
+                                       headers={"Authorization": f"Bearer {settings.vapi_api_key}"})
+                if _r.status_code == 200:
+                    _assistant_valid = True
+                    vapi_assistant_id = _existing_aid
+            except Exception:
+                pass
+
+        if not _assistant_valid:
+            try:
+                from backend.services.vapi_service import create_assistant
+                vapi_assistant_id = await create_assistant(client_config, client_id)
+                sb.table("clients").update({"vapi_assistant_id": vapi_assistant_id}).eq("id", client_id).execute()
+            except Exception as exc:
+                if not _supabase_user_existed:
+                    _rollback_supabase_user(sb, client_id)
+                yield _sse("error", {"message": f"Failed to create AI assistant: {exc}"})
+                return
+
+        yield _sse("step", {"step": "assistant", "status": "done",
+                            "message": f"✓ AI assistant created (ID: {vapi_assistant_id})"})
+
+        # --- Step 3: Vapi phone number ---
+        yield _sse("step", {"step": "phone", "status": "running",
+                            "message": f"Purchasing phone number (area code {area_code})… this may take 15–30 s"})
+        _existing_phone: str | None = client.get("vapi_phone_number")
+        _phone_valid = False
+        if _existing_phone:
+            try:
+                async with _httpx.AsyncClient(timeout=10) as _hc:
+                    _r = await _hc.get("https://api.vapi.ai/phone-number",
+                                       headers={"Authorization": f"Bearer {settings.vapi_api_key}"})
+                if _r.status_code == 200 and _existing_phone in {n.get("number") for n in _r.json()}:
+                    _phone_valid = True
+                    vapi_phone_number = _existing_phone
+                else:
+                    sb.table("clients").update({"vapi_phone_number": None}).eq("id", client_id).execute()
+            except Exception:
+                pass
+
+        if not _phone_valid:
+            try:
+                from backend.services.vapi_service import buy_phone_number
+                vapi_phone_id, vapi_phone_number = await buy_phone_number(
+                    area_code=area_code, assistant_id=vapi_assistant_id,
+                    client_id=client_id, business_name=business_name,
+                )
+                sb.table("clients").update({"vapi_phone_number": vapi_phone_number}).eq("id", client_id).execute()
+            except Exception as exc:
+                if not _assistant_valid:
+                    _rollback_vapi_assistant(vapi_assistant_id)
+                    try:
+                        sb.table("clients").update({"vapi_assistant_id": None}).eq("id", client_id).execute()
+                    except Exception:
+                        pass
+                if not _supabase_user_existed:
+                    _rollback_supabase_user(sb, client_id)
+                yield _sse("error", {"message": f"Failed to purchase phone number: {exc}"})
+                return
+
+        yield _sse("step", {"step": "phone", "status": "done",
+                            "message": f"✓ AI calling number assigned: {vapi_phone_number}"})
+
+        # --- Step 4: Twilio (non-fatal) ---
+        yield _sse("step", {"step": "twilio", "status": "running", "message": "Provisioning SMS number…"})
+        twilio_phone_number: str | None = None
+        try:
+            from backend.services.twilio_service import provision_number
+            twilio_phone_number = await provision_number(area_code, client_id)
+            sb.table("clients").update({"twilio_phone_number": twilio_phone_number}).eq("id", client_id).execute()
+            yield _sse("step", {"step": "twilio", "status": "done",
+                                "message": f"✓ SMS number provisioned: {twilio_phone_number}"})
+        except Exception as exc:
+            yield _sse("step", {"step": "twilio", "status": "skipped",
+                                "message": f"⚠ SMS number skipped (A2P registration required) — enable after carrier approval"})
+
+        # --- Step 5: Mark active ---
+        yield _sse("step", {"step": "activate", "status": "running", "message": "Finalising activation…"})
+        try:
+            sb.table("clients").update({
+                "onboarding_status": "active",
+                "is_active": True,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", client_id).execute()
+        except Exception as exc:
+            yield _sse("error", {"message": f"Status update failed: {exc}"})
+            return
+
+        yield _sse("step", {"step": "activate", "status": "done", "message": "✓ Client marked active"})
+
+        # --- Step 6: KB ingest (non-fatal) ---
+        yield _sse("step", {"step": "kb", "status": "running", "message": "Ingesting knowledge base…"})
+        try:
+            from backend.services.rag_service import ingest_client_knowledge
+            await ingest_client_knowledge(client_id, client_config)
+            yield _sse("step", {"step": "kb", "status": "done", "message": "✓ Knowledge base ingested"})
+        except Exception:
+            yield _sse("step", {"step": "kb", "status": "skipped", "message": "⚠ KB ingest skipped (non-critical)"})
+
+        logger.info("Client activated via SSE stream", client_id=client_id, phone=vapi_phone_number)
+        yield _sse("done", {
+            "client_id": client_id,
+            "vapi_phone_number": vapi_phone_number,
+            "twilio_phone_number": twilio_phone_number,
+            "email": email,
+            "business_name": business_name,
+        })
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/clients/{client_id}/magic-link")
+async def get_magic_link(
+    client_id: str,
+    _admin: dict = Depends(require_admin),
+) -> dict[str, Any]:
+    """Generate a Supabase magic link so the client can set their password."""
+    sb = get_supabase()
+    try:
+        resp = sb.table("clients").select("email,business_name,vapi_phone_number").eq("id", client_id).limit(1).execute()
+        rows = resp.data or []
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    if not rows:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    email = rows[0]["email"]
+    try:
+        link_resp = sb.auth.admin.generate_link({
+            "type": "recovery",
+            "email": email,
+            "options": {"redirect_to": f"{settings.frontend_url}/set-password"},
+        })
+        magic_link = link_resp.properties.action_link if link_resp and link_resp.properties else None
+        if not magic_link:
+            raise RuntimeError("No link returned")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate magic link: {exc}")
+
+    return {
+        "magic_link": magic_link,
+        "email": email,
+        "business_name": rows[0].get("business_name"),
+        "vapi_phone_number": rows[0].get("vapi_phone_number"),
+    }
+
+
 @router.post("/clients/{client_id}/activate")
 async def activate_client(
     client_id: str,
     _admin: dict = Depends(require_admin),
 ) -> dict[str, Any]:
-    """Provision a pending client: Supabase user + Vapi assistant + phone numbers.
-
-    Called by admin after reviewing a self-service onboarding submission.
-    The pending client record already exists in the DB (created by
-    POST /api/onboarding/submit).  This endpoint:
-      1. Validates client exists and is still pending
-      2. Creates Supabase auth user with the same UUID as the pending client
-      3. Sends password-set invite email
-      4. Creates Vapi assistant
-      5. Buys Vapi phone number (for calls)
-      6. Provisions Twilio number (for SMS)
-      7. Sets onboarding_status='active', is_active=true
-
-    Full rollback on steps 2–6 failure (same pattern as create_client).
-    """
+    """Legacy non-streaming activate (kept for backwards compat). Delegates to SSE logic."""
     sb = get_supabase()
 
     # Fetch the pending client record.
@@ -420,7 +661,11 @@ async def activate_client(
 
     # Send invite / password-set email.
     try:
-        sb.auth.admin.generate_link({"type": "recovery", "email": email})
+        sb.auth.admin.generate_link({
+            "type": "recovery",
+            "email": email,
+            "options": {"redirect_to": f"{settings.frontend_url}/set-password"},
+        })
         logger.info("Activate: invite email sent", email=email)
     except Exception as exc:
         logger.warning("Activate: invite email failed (non-fatal)", email=email, error=str(exc))

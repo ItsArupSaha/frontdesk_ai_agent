@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # In local dev:  your ngrok URL (https://xxxx.ngrok.io)
     vapi_webhook_base_url: str = "http://localhost:8000"
 
+    # Frontend URL — used for magic link redirect_to
+    frontend_url: str = "http://localhost:5173"
+
     # LemonSqueezy — payment webhook signature verification
     lemon_squeezy_webhook_secret: str = ""
 

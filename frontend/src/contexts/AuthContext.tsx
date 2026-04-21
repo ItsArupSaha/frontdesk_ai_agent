@@ -33,7 +33,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const me = await getMe(accessToken);
       setRole(me.is_admin ? "admin" : "client");
     } catch {
-      setRole("client");
+      // Transient failure — keep existing role. Role only clears on sign-out.
+      // Setting "client" on failure was kicking admins out during server blips.
     }
   }
 
@@ -50,13 +51,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
-      if (nextSession?.user && nextSession.access_token) {
-        await fetchRole(nextSession.access_token);
-      } else {
+
+      if (!nextSession?.user) {
+        // Explicit sign-out or expired session — clear role.
         setRole(null);
+        setLoading(false);
+        return;
+      }
+
+      // TOKEN_REFRESHED just renews the JWT — role never changes.
+      // Re-fetching on every hourly refresh caused admins to get
+      // redirected to /dashboard when the backend was momentarily slow.
+      if (event === "TOKEN_REFRESHED") {
+        setSession(nextSession);
+        setLoading(false);
+        return;
+      }
+
+      // SIGNED_IN, PASSWORD_RECOVERY, USER_UPDATED — re-fetch role.
+      if (nextSession.access_token) {
+        await fetchRole(nextSession.access_token);
       }
       setLoading(false);
     });

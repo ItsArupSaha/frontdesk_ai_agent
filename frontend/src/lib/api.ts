@@ -344,6 +344,17 @@ export function updateBookingStatus(
   });
 }
 
+export interface MagicLinkResponse {
+  magic_link: string | null;
+  email: string;
+  business_name: string;
+  vapi_phone_number: string | null;
+}
+
+export function getMagicLink(token: string, clientId: string): Promise<MagicLinkResponse> {
+  return apiFetch(`/api/admin/clients/${clientId}/magic-link`, token);
+}
+
 export function updateSmsEnabled(
   token: string,
   clientId: string,
