@@ -367,7 +367,10 @@ async def vapi_webhook(request: Request) -> dict:
                 if phone_num:
                     res = supabase.table("clients").select("*").eq("twilio_phone_number", phone_num).limit(1).execute()
                     if res.data:
-                        return _row_to_config(res.data[0])
+                        row = res.data[0]
+                        # Suspended clients: return config so the webhook can
+                        # return a "service unavailable" message — don't silently drop.
+                        return _row_to_config(row)
                 # Fallback: oldest active client by created_at (dev/single-tenant mode).
                 # ORDER BY created_at ensures deterministic result — without it Postgres
                 # returns an arbitrary row when multiple active clients exist.
@@ -471,6 +474,20 @@ async def vapi_webhook(request: Request) -> dict:
         }
 
         emergency_number = client_config.get("emergency_phone_number", "+15550000000")
+
+        # Suspended clients: agent hangs up with a polite message.
+        # All DB writes, SMS, and bookings are skipped — call_logs upsert below
+        # never runs for suspended clients.
+        if not client_config.get("is_active", True):
+            logger.info("Call received for suspended client — rejecting", client_id=client_config["id"])
+            return {
+                "response": {
+                    "message": (
+                        "Thank you for calling. Unfortunately this service is temporarily "
+                        "unavailable. Please try again later or contact the business directly."
+                    )
+                }
+            }
 
         # AI toggle: if client has disabled AI forwarding, transfer to their main number.
         if not client_config.get("is_ai_enabled", True):
