@@ -10,6 +10,7 @@ roll back any partial state.
 """
 from __future__ import annotations
 
+import asyncio
 import httpx
 from backend.config import settings
 from backend.utils.logging import get_logger
@@ -17,7 +18,7 @@ from backend.utils.logging import get_logger
 logger = get_logger(__name__)
 
 _VAPI_BASE = "https://api.vapi.ai"
-_DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel — ElevenLabs
+_DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel — ElevenLabs Flash
 
 
 class VapiServiceError(Exception):
@@ -102,6 +103,7 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
         "voice": {
             "provider": "11labs",
             "voiceId": _DEFAULT_VOICE_ID,
+            "model": "eleven_flash_v2_5",
         },
         "firstMessage": (
             f"Thanks for calling {business_name}, this is Alex! "
@@ -155,6 +157,8 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
         VapiServiceError: on any API error.
     """
     business_name: str = client_config.get("business_name", "Our Business")
+    services: list[str] = client_config.get("services_offered", [])
+    working_hours: dict = client_config.get("working_hours", {})
     webhook_url = f"{settings.vapi_webhook_base_url}/webhook/vapi"
 
     patch_payload: dict = {
@@ -164,6 +168,16 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
             f"How can I help you today?"
         ),
         "serverUrl": webhook_url,
+        "model": {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": _system_prompt(business_name, services, working_hours),
+                }
+            ],
+        },
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -248,64 +262,126 @@ async def buy_phone_number(
     Raises:
         VapiServiceError: on any API error or no number available.
     """
-    async with httpx.AsyncClient(timeout=30) as http:
-        # Try requested area code first.
-        for attempt_payload in [
-            {
+    # Fallback area codes to try if the requested one is unavailable.
+    # These are known to have Vapi inventory. The correct API param is
+    # "numberDesiredAreaCode" (not "areaCode" — that key is silently ignored).
+    _FALLBACK_AREA_CODES = ["216", "731", "985", "270", "414", "502"]
+
+    area_codes_to_try = [area_code] + [c for c in _FALLBACK_AREA_CODES if c != area_code]
+    resp = None
+
+    _MAX_NET_RETRIES = 4
+    _NET_RETRY_DELAY = 5  # seconds between transient-error retries
+
+    async with httpx.AsyncClient(timeout=45) as http:
+        for attempt_code in area_codes_to_try:
+            payload = {
                 "provider": "vapi",
-                "areaCode": area_code,
+                "numberDesiredAreaCode": attempt_code,
                 "assistantId": assistant_id,
                 "name": f"{business_name} Line",
-            },
-            # Fallback: no area code constraint — any available US number.
-            {
-                "provider": "vapi",
-                "assistantId": assistant_id,
-                "name": f"{business_name} Line",
-            },
-        ]:
-            try:
-                resp = await http.post(
-                    f"{_VAPI_BASE}/phone-number",
-                    headers=_headers(),
-                    json=attempt_payload,
-                )
-                if resp.status_code == 400 and "areaCode" in attempt_payload:
-                    # No inventory in this area code — try without constraint.
-                    logger.info(
-                        "Vapi: no number in area code, trying any US number",
-                        area_code=area_code,
+            }
+            _area_code_done = False
+            for net_attempt in range(1, _MAX_NET_RETRIES + 1):
+                try:
+                    r = await http.post(
+                        f"{_VAPI_BASE}/phone-number",
+                        headers=_headers(),
+                        json=payload,
+                    )
+                    if r.status_code == 400:
+                        logger.info(
+                            "Vapi: area code unavailable, trying next",
+                            tried=attempt_code,
+                            client_id=client_id,
+                            detail=r.text[:200],
+                        )
+                        _area_code_done = True
+                        break
+                    r.raise_for_status()
+                    resp = r
+                    _area_code_done = True
+                    break
+                except httpx.HTTPStatusError as exc:
+                    logger.warning(
+                        "Vapi buy_phone_number HTTP error on area code",
+                        tried=attempt_code,
+                        status=exc.response.status_code,
                         client_id=client_id,
                     )
-                    continue
-                resp.raise_for_status()
+                    _area_code_done = True
+                    break
+                except httpx.RequestError as exc:
+                    if net_attempt >= _MAX_NET_RETRIES:
+                        logger.error(
+                            "Vapi buy_phone_number network error, retries exhausted",
+                            tried=attempt_code,
+                            client_id=client_id,
+                            error=repr(exc),
+                        )
+                        raise VapiServiceError(
+                            f"Vapi network error after {_MAX_NET_RETRIES} retries: {exc}"
+                        ) from exc
+                    logger.warning(
+                        "Vapi buy_phone_number transient network error, retrying",
+                        tried=attempt_code,
+                        net_attempt=net_attempt,
+                        max_retries=_MAX_NET_RETRIES,
+                        client_id=client_id,
+                        error=repr(exc),
+                    )
+                    await asyncio.sleep(_NET_RETRY_DELAY)
+            if resp is not None:
                 break
-            except httpx.HTTPStatusError as exc:
-                if "areaCode" in attempt_payload:
-                    # Will retry without area code.
-                    continue
-                logger.error(
-                    "Vapi buy_phone_number failed",
-                    client_id=client_id,
-                    status=exc.response.status_code,
-                    body=exc.response.text[:500],
-                )
-                raise VapiServiceError(
-                    f"Vapi phone purchase error {exc.response.status_code}: {exc.response.text[:200]}"
-                ) from exc
-            except httpx.RequestError as exc:
-                logger.error("Vapi buy_phone_number network error", client_id=client_id, error=str(exc))
-                raise VapiServiceError(f"Vapi network error: {exc}") from exc
-        else:
-            raise VapiServiceError(
-                f"Vapi has no available numbers for area code {area_code} or any fallback"
-            )
+
+    if resp is None:
+        raise VapiServiceError(
+            f"Vapi has no available numbers for area code {area_code} or any fallback "
+            f"({', '.join(_FALLBACK_AREA_CODES)})"
+        )
 
     data = resp.json()
     vapi_phone_id: str | None = data.get("id")
     phone_number: str | None = data.get("number")
+
+    # Vapi assigns the real carrier number asynchronously after creating the record.
+    # Poll up to 30 s (10 × 3 s) for the 'number' field to appear.
+    if vapi_phone_id and not phone_number:
+        async with httpx.AsyncClient(timeout=15) as poll_http:
+            for _ in range(10):
+                await asyncio.sleep(3)
+                try:
+                    poll_resp = await poll_http.get(
+                        f"{_VAPI_BASE}/phone-number/{vapi_phone_id}",
+                        headers=_headers(),
+                    )
+                    if poll_resp.status_code == 200:
+                        phone_number = poll_resp.json().get("number")
+                        if phone_number:
+                            break
+                except Exception:
+                    pass
+
     if not vapi_phone_id or not phone_number:
-        raise VapiServiceError(f"Vapi phone-number response missing fields: {data}")
+        # Clean up the orphan record so it doesn't accumulate in the Vapi account.
+        if vapi_phone_id:
+            try:
+                async with httpx.AsyncClient(timeout=10) as cleanup_http:
+                    await cleanup_http.delete(
+                        f"{_VAPI_BASE}/phone-number/{vapi_phone_id}",
+                        headers=_headers(),
+                    )
+                logger.info("Vapi orphan phone number cleaned up", vapi_phone_id=vapi_phone_id)
+            except Exception as cleanup_exc:
+                logger.error(
+                    "Failed to clean up orphan Vapi phone number",
+                    vapi_phone_id=vapi_phone_id,
+                    error=str(cleanup_exc),
+                )
+        raise VapiServiceError(
+            f"Vapi phone number created but 'number' field never appeared after 30 s. "
+            f"Check Vapi account billing. Record id={vapi_phone_id}"
+        )
 
     logger.info(
         "Vapi phone number purchased",

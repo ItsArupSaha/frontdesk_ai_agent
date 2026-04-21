@@ -104,7 +104,7 @@ async def lemon_squeezy_webhook(request: Request) -> JSONResponse:
     data: dict = payload.get("data", {})
     attributes: dict = data.get("attributes", {})
 
-    logger.info("LemonSqueezy event received", event=event_name)
+    logger.info("LemonSqueezy event received", ls_ls_event=event_name)
 
     if event_name == "order_created":
         # Informational — first purchase. No subscription yet.
@@ -112,7 +112,7 @@ async def lemon_squeezy_webhook(request: Request) -> JSONResponse:
         return JSONResponse({"ok": True})
 
     if event_name not in _EVENT_TO_STATUS:
-        logger.warning("LemonSqueezy: unhandled event", event=event_name)
+        logger.warning("LemonSqueezy: unhandled event", ls_event=event_name)
         return JSONResponse({"ok": True})
 
     # Extract key fields from the event payload.
@@ -131,7 +131,7 @@ async def lemon_squeezy_webhook(request: Request) -> JSONResponse:
         new_status = fixed_status
 
     if not customer_email:
-        logger.warning("LemonSqueezy webhook: no customer email in payload", event=event_name)
+        logger.warning("LemonSqueezy webhook: no customer email in payload", ls_event=event_name)
         return JSONResponse({"ok": True})
 
     await _update_client_subscription(
@@ -164,7 +164,7 @@ async def _update_client_subscription(
         return
 
     if not rows:
-        logger.warning("LemonSqueezy: no client found for email", email=email, event=event_name)
+        logger.warning("LemonSqueezy: no client found for email", email=email, ls_event=event_name)
         return
 
     client_id = rows[0]["id"]
@@ -185,13 +185,13 @@ async def _update_client_subscription(
         logger.info(
             "LemonSqueezy: subscription updated",
             client_id=client_id,
-            event=event_name,
+            ls_ls_event=event_name,
             new_status=new_status,
         )
     except Exception as exc:
         logger.error(
             "LemonSqueezy: DB update failed",
             client_id=client_id,
-            event=event_name,
+            ls_ls_event=event_name,
             error=str(exc),
         )

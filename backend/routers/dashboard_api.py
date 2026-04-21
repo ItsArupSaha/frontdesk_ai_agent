@@ -423,7 +423,8 @@ async def get_settings(
                 "is_ai_enabled,sms_enabled,timezone,working_hours,services_offered,"
                 "service_area_description,google_review_link,"
                 "vapi_assistant_id,vapi_phone_number,twilio_phone_number,is_active,"
-                "fsm_type,created_at,updated_at,kb_last_ingested_at"
+                "fsm_type,created_at,updated_at,kb_last_ingested_at,"
+                "google_calendar_email,google_calendar_refresh_token_enc"
             )
             .eq("id", client_id)
             .limit(1)
@@ -437,7 +438,10 @@ async def get_settings(
     if not rows:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    return rows[0]
+    row = rows[0]
+    # Derive calendar_connected from presence of refresh token (don't expose token itself).
+    row["calendar_connected"] = bool(row.pop("google_calendar_refresh_token_enc", None))
+    return row
 
 
 @router.put("/settings")

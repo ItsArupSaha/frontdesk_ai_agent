@@ -113,12 +113,27 @@ async def handle_oauth_callback(code: str, client_id: str) -> None:
             "No refresh_token in response. User may need to revoke access and re-authorise."
         )
 
+    # Fetch the connected Google account email via userinfo endpoint.
+    calendar_email: str | None = None
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=10) as _http:
+            ui = await _http.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {credentials.token}"},
+            )
+            if ui.status_code == 200:
+                calendar_email = ui.json().get("email")
+    except Exception as exc:
+        logger.warning("Could not fetch Google userinfo (non-fatal)", error=str(exc))
+
     encrypted_token = encrypt(refresh_token)
     supabase = get_supabase()
+    update: dict = {"google_calendar_refresh_token_enc": encrypted_token}
+    if calendar_email:
+        update["google_calendar_email"] = calendar_email
     try:
-        supabase.table("clients").update(
-            {"google_calendar_refresh_token_enc": encrypted_token}
-        ).eq("id", client_id).execute()
+        supabase.table("clients").update(update).eq("id", client_id).execute()
     except Exception as exc:
         logger.error("Failed to store refresh token", client_id=client_id, error=str(exc))
         raise CalendarAuthError(f"Failed to persist refresh token: {exc}") from exc
@@ -320,10 +335,15 @@ async def get_available_slots(
         start_hour, end_hour = _parse_working_hours(hours_str)
 
         # Generate candidate slot starts at hourly intervals
+        now = datetime.now(tz)
         candidate = search_date.replace(hour=start_hour, minute=0)
         day_end = search_date.replace(hour=end_hour, minute=0)
 
         while candidate + timedelta(minutes=duration_minutes) <= day_end and len(slots) < 3:
+            # Skip slots already in the past (or within the next 30 min — not enough notice)
+            if candidate < now + timedelta(minutes=30):
+                candidate += timedelta(hours=1)
+                continue
             slot_start = candidate
             slot_end = candidate + timedelta(minutes=duration_minutes)
 

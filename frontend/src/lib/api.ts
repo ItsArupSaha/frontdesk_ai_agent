@@ -87,6 +87,8 @@ export interface ClientSettings {
   is_active: boolean;
   fsm_type: string | null;
   kb_last_ingested_at: string | null;
+  calendar_connected: boolean;
+  google_calendar_email: string | null;
   created_at: string;
   updated_at: string;
 }

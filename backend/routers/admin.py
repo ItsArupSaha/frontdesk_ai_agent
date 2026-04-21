@@ -19,6 +19,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from backend.config import settings
 from backend.db.client import get_supabase
 from backend.utils.auth import require_admin
 from backend.utils.logging import get_logger
@@ -388,21 +389,34 @@ async def activate_client(
         _rollback_vapi_phone,
         _rollback_db_client,
     )
+    import httpx as _httpx
 
-    # Step 1: Create Supabase auth user with the same UUID as the pending client.
+    # -----------------------------------------------------------------------
+    # Step 1: Create Supabase auth user — skip if already exists (retry-safe).
+    # -----------------------------------------------------------------------
+    _supabase_user_existed = False
     try:
-        create_resp = sb.auth.admin.create_user({
-            "id": client_id,
-            "email": email,
-            "email_confirm": True,
-            "password": _generate_temp_password(),
-        })
-        if create_resp is None or create_resp.user is None:
-            raise RuntimeError("Supabase returned no user")
-        logger.info("Activate: Supabase auth user created", client_id=client_id, email=email)
-    except Exception as exc:
-        logger.error("Activate step 1 failed: Supabase user creation", client_id=client_id, error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Failed to create auth user: {exc}")
+        existing_user = sb.auth.admin.get_user_by_id(client_id)
+        if existing_user and existing_user.user:
+            _supabase_user_existed = True
+            logger.info("Activate: Supabase auth user already exists, reusing", client_id=client_id)
+    except Exception:
+        pass
+
+    if not _supabase_user_existed:
+        try:
+            create_resp = sb.auth.admin.create_user({
+                "id": client_id,
+                "email": email,
+                "email_confirm": True,
+                "password": _generate_temp_password(),
+            })
+            if create_resp is None or create_resp.user is None:
+                raise RuntimeError("Supabase returned no user")
+            logger.info("Activate: Supabase auth user created", client_id=client_id, email=email)
+        except Exception as exc:
+            logger.error("Activate step 1 failed: Supabase user creation", client_id=client_id, error=str(exc))
+            raise HTTPException(status_code=500, detail=f"Failed to create auth user: {exc}")
 
     # Send invite / password-set email.
     try:
@@ -411,50 +425,110 @@ async def activate_client(
     except Exception as exc:
         logger.warning("Activate: invite email failed (non-fatal)", email=email, error=str(exc))
 
-    # Step 2: Create Vapi assistant.
-    try:
-        from backend.services.vapi_service import create_assistant
-        vapi_assistant_id = await create_assistant(client_config, client_id)
-        sb.table("clients").update({"vapi_assistant_id": vapi_assistant_id}).eq("id", client_id).execute()
-        logger.info("Activate: Vapi assistant created", client_id=client_id, assistant_id=vapi_assistant_id)
-    except Exception as exc:
-        logger.error("Activate step 2 failed: Vapi assistant", client_id=client_id, error=str(exc))
-        _rollback_supabase_user(sb, client_id)
-        raise HTTPException(status_code=500, detail=f"Failed to create Vapi assistant: {exc}")
+    # -----------------------------------------------------------------------
+    # Step 2: Create Vapi assistant — reuse if DB already has a valid one.
+    # -----------------------------------------------------------------------
+    _existing_assistant_id: str | None = client.get("vapi_assistant_id") or (
+        sb.table("clients").select("vapi_assistant_id").eq("id", client_id).limit(1).execute().data or [{}]
+    )[0].get("vapi_assistant_id")
 
-    # Step 3: Buy Vapi phone number.
+    _assistant_valid = False
+    if _existing_assistant_id:
+        try:
+            async with _httpx.AsyncClient(timeout=10) as _hc:
+                _r = await _hc.get(
+                    f"https://api.vapi.ai/assistant/{_existing_assistant_id}",
+                    headers={"Authorization": f"Bearer {settings.vapi_api_key}"},
+                )
+            if _r.status_code == 200:
+                _assistant_valid = True
+                vapi_assistant_id = _existing_assistant_id
+                logger.info("Activate: reusing existing Vapi assistant", client_id=client_id, assistant_id=vapi_assistant_id)
+        except Exception:
+            pass
+
+    if not _assistant_valid:
+        try:
+            from backend.services.vapi_service import create_assistant
+            vapi_assistant_id = await create_assistant(client_config, client_id)
+            sb.table("clients").update({"vapi_assistant_id": vapi_assistant_id}).eq("id", client_id).execute()
+            logger.info("Activate: Vapi assistant created", client_id=client_id, assistant_id=vapi_assistant_id)
+        except Exception as exc:
+            logger.error("Activate step 2 failed: Vapi assistant", client_id=client_id, error=str(exc))
+            if not _supabase_user_existed:
+                _rollback_supabase_user(sb, client_id)
+            raise HTTPException(status_code=500, detail=f"Failed to create Vapi assistant: {exc}")
+
+    # -----------------------------------------------------------------------
+    # Step 3: Buy Vapi phone number — reuse if DB already has a valid one.
+    # -----------------------------------------------------------------------
+    _existing_vapi_phone: str | None = (
+        sb.table("clients").select("vapi_phone_number").eq("id", client_id).limit(1).execute().data or [{}]
+    )[0].get("vapi_phone_number")
+
+    _phone_valid = False
+    if _existing_vapi_phone:
+        # Verify the number still exists in Vapi by listing and matching.
+        try:
+            async with _httpx.AsyncClient(timeout=10) as _hc:
+                _r = await _hc.get(
+                    "https://api.vapi.ai/phone-number",
+                    headers={"Authorization": f"Bearer {settings.vapi_api_key}"},
+                )
+            if _r.status_code == 200:
+                _existing_numbers = {n.get("number") for n in _r.json()}
+                if _existing_vapi_phone in _existing_numbers:
+                    _phone_valid = True
+                    vapi_phone_number = _existing_vapi_phone
+                    logger.info("Activate: reusing existing Vapi phone number", client_id=client_id, phone=vapi_phone_number)
+                else:
+                    # Stale — clear DB field so panel doesn't show wrong number.
+                    sb.table("clients").update({"vapi_phone_number": None}).eq("id", client_id).execute()
+                    logger.info("Activate: cleared stale vapi_phone_number from DB", client_id=client_id, stale=_existing_vapi_phone)
+        except Exception:
+            pass
+
     # Derive area_code from emergency_phone_number if available, else default 212.
     emergency_phone = client.get("emergency_phone_number", "+12120000000")
     area_code = emergency_phone[2:5] if len(emergency_phone) >= 5 else "212"
 
-    try:
-        from backend.services.vapi_service import buy_phone_number
-        vapi_phone_id, vapi_phone_number = await buy_phone_number(
-            area_code=area_code,
-            assistant_id=vapi_assistant_id,
-            client_id=client_id,
-            business_name=business_name,
-        )
-        sb.table("clients").update({"vapi_phone_number": vapi_phone_number}).eq("id", client_id).execute()
-        logger.info("Activate: Vapi phone bought", client_id=client_id, phone=vapi_phone_number)
-    except Exception as exc:
-        logger.error("Activate step 3 failed: Vapi phone", client_id=client_id, error=str(exc))
-        _rollback_vapi_assistant(vapi_assistant_id)
-        _rollback_supabase_user(sb, client_id)
-        raise HTTPException(status_code=500, detail=f"Failed to buy calling number: {exc}")
+    if not _phone_valid:
+        try:
+            from backend.services.vapi_service import buy_phone_number
+            vapi_phone_id, vapi_phone_number = await buy_phone_number(
+                area_code=area_code,
+                assistant_id=vapi_assistant_id,
+                client_id=client_id,
+                business_name=business_name,
+            )
+            sb.table("clients").update({"vapi_phone_number": vapi_phone_number}).eq("id", client_id).execute()
+            logger.info("Activate: Vapi phone bought", client_id=client_id, phone=vapi_phone_number)
+        except Exception as exc:
+            logger.error("Activate step 3 failed: Vapi phone", client_id=client_id, error=str(exc))
+            if not _assistant_valid:
+                # Only delete assistant if we created it this run.
+                _rollback_vapi_assistant(vapi_assistant_id)
+                try:
+                    sb.table("clients").update({"vapi_assistant_id": None}).eq("id", client_id).execute()
+                except Exception:
+                    pass
+            if not _supabase_user_existed:
+                _rollback_supabase_user(sb, client_id)
+            raise HTTPException(status_code=500, detail=f"Failed to buy calling number: {exc}")
 
-    # Step 4: Provision Twilio SMS number.
+    # Step 4: Provision Twilio SMS number (non-blocking — SMS requires A2P registration).
+    # Failure here does NOT block activation. Admin enables SMS manually after A2P approval.
     try:
         from backend.services.twilio_service import provision_number
         twilio_phone_number = await provision_number(area_code, client_id)
         sb.table("clients").update({"twilio_phone_number": twilio_phone_number}).eq("id", client_id).execute()
         logger.info("Activate: Twilio number provisioned", client_id=client_id, phone=twilio_phone_number)
     except Exception as exc:
-        logger.error("Activate step 4 failed: Twilio", client_id=client_id, error=str(exc))
-        _rollback_vapi_phone(vapi_phone_id)
-        _rollback_vapi_assistant(vapi_assistant_id)
-        _rollback_supabase_user(sb, client_id)
-        raise HTTPException(status_code=500, detail=f"Failed to provision SMS number: {exc}")
+        logger.warning(
+            "Activate step 4: Twilio number skipped (non-fatal) — admin must provision manually after A2P approval",
+            client_id=client_id,
+            error=str(exc),
+        )
 
     # Step 5: Mark client as active.
     try:

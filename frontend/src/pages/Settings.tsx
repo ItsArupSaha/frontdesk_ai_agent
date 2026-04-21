@@ -455,15 +455,29 @@ export default function SettingsPage() {
           </Section>
 
           <Section title="Integrations" icon={Link2}>
-            <button
-              type="button"
-              onClick={() => {
-                window.location.href = `/auth/google/connect?client_id=${clientId}`;
-              }}
-              className="rounded-[20px] border border-violet-400/20 bg-violet-500/10 px-4 py-3 text-sm text-violet-200 transition-colors hover:bg-violet-500/16"
-            >
-              Reconnect Google Calendar
-            </button>
+            <div className="flex flex-col gap-2">
+              {query.data?.calendar_connected ? (
+                <div className="flex items-center gap-2 text-sm text-green-400">
+                  <span className="inline-block h-2 w-2 rounded-full bg-green-400" />
+                  Connected: {query.data.google_calendar_email ?? "Google Calendar"}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-amber-400">
+                  <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
+                  Not connected
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const apiBase = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
+                  window.location.href = `${apiBase}/auth/google/connect?client_id=${clientId}`;
+                }}
+                className="w-fit rounded-[20px] border border-violet-400/20 bg-violet-500/10 px-4 py-3 text-sm text-violet-200 transition-colors hover:bg-violet-500/16"
+              >
+                {query.data?.calendar_connected ? "Reconnect Google Calendar" : "Connect Google Calendar"}
+              </button>
+            </div>
             <Field label="Jobber API Key">
               <input
                 type="password"
