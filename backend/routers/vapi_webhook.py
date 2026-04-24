@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, ValidationError
 from typing import Optional, List
 
 from backend.config import settings
+from backend.services import reminder_service
+from backend.services.client_service import row_to_config
 from backend.utils.logging import get_logger
 from backend.utils.limiter import limiter
 from backend.agents.graph import compiled_graph
@@ -17,6 +19,75 @@ from backend.db.client import get_supabase
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# DB helpers — module-level so they are independently testable
+# ---------------------------------------------------------------------------
+
+
+def _db_client_config(supabase, phone_num: str | None) -> dict | None:
+    """Load client config from DB by Twilio phone number or fallback to first active client."""
+    try:
+        if phone_num:
+            res = supabase.table("clients").select("*").eq("twilio_phone_number", phone_num).limit(1).execute()
+            if res.data:
+                return row_to_config(res.data[0])
+        res = supabase.table("clients").select("*").eq("is_active", True).order("created_at").limit(1).execute()
+        if res.data:
+            return row_to_config(res.data[0])
+    except Exception as exc:
+        logger.warning("DB client lookup failed", error=str(exc))
+    return None
+
+
+def _db_conversation_state(supabase, call_id: str) -> dict:
+    """Load conversation state from DB for this call_id."""
+    import json as _json
+    default: dict = {"current_node": "greeting", "is_emergency": False}
+    try:
+        res = (
+            supabase.table("conversation_state")
+            .select("*")
+            .eq("call_id", call_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            row = res.data[0]
+            available_slots: list = []
+            cached_config: dict | None = None
+            call_outcome: str | None = None
+            for msg in row.get("messages") or []:
+                role = msg.get("role")
+                if role == "__slots__":
+                    try:
+                        available_slots = _json.loads(msg.get("content", "[]"))
+                    except Exception:
+                        available_slots = []
+                elif role == "__client_config__":
+                    try:
+                        cached_config = _json.loads(msg.get("content", "{}"))
+                    except Exception:
+                        cached_config = None
+                elif role == "__call_outcome__":
+                    call_outcome = msg.get("content")
+            return {
+                "current_node": row.get("current_node", "greeting"),
+                "is_emergency": row.get("is_emergency", False),
+                "caller_name": row.get("caller_name"),
+                "caller_phone": row.get("caller_phone"),
+                "caller_address": row.get("caller_address"),
+                "problem_description": row.get("problem_description"),
+                "collection_complete": row.get("collection_complete", False),
+                "booking_complete": row.get("booking_complete", False),
+                "available_slots": available_slots,
+                "cached_client_config": cached_config,
+                "call_outcome": call_outcome,
+            }
+    except Exception as exc:
+        logger.warning("State lookup failed", error=str(exc))
+    return default
 
 
 # ---------------------------------------------------------------------------
@@ -270,54 +341,14 @@ async def vapi_webhook(request: Request) -> dict:
                             phone=phone_num,
                         )
                     elif client_id_for_sms:
-                        # Build professional message with business name and calling number.
-                        if vapi_calling_number:
-                            formatted_num = vapi_calling_number
-                        else:
-                            formatted_num = None
-
-                        if formatted_num:
-                            recovery_msg = (
-                                f"Hi, we're sorry for any inconvenience during your recent call with "
-                                f"{business_name}. Please call us back at {formatted_num} "
-                                f"and we'll be happy to assist you."
-                            )
-                        else:
-                            recovery_msg = (
-                                f"Hi, we're sorry for any inconvenience during your recent call with "
-                                f"{business_name}. Please give us a call back and we'll be happy to assist you."
-                            )
-
-                        scheduled_for = (
-                            datetime.now(timezone.utc) + timedelta(minutes=2)
-                        ).isoformat()
-                        try:
-                            supabase.table("reminders_queue").insert({
-                                "client_id": client_id_for_sms,
-                                "type": "missed_call_recovery",
-                                "to_number": phone_num,
-                                "scheduled_for": scheduled_for,
-                                "message_body": recovery_msg,
-                            }).execute()
-                            logger.info(
-                                "Missed-call recovery queued",
-                                call_id=call_id,
-                                scheduled_for=scheduled_for,
-                            )
-                        except Exception as exc:
-                            logger.error(
-                                "Failed to queue missed-call recovery",
-                                call_id=call_id,
-                                error=str(exc),
-                            )
-                            # Fallback: send directly so caller is never left without follow-up
-                            from backend.services import sms_service
-                            sms_service.send_missed_call_recovery(
-                                caller_number=phone_num,
-                                business_name=business_name,
-                                client_id=client_id_for_sms,
-                                calling_number=vapi_calling_number,
-                            )
+                        reminder_service.queue_missed_call_recovery(
+                            client_id=client_id_for_sms,
+                            to_number=phone_num,
+                            business_name=business_name,
+                            calling_number=vapi_calling_number,
+                            supabase=supabase,
+                        )
+                        logger.info("Missed-call recovery queued", call_id=call_id)
                     else:
                         # No client_id — send directly (queue FK would fail)
                         from backend.services import sms_service
@@ -357,106 +388,9 @@ async def vapi_webhook(request: Request) -> dict:
         # mid-call. This ensures settings changes take effect on the NEXT call,
         # not mid-conversation, preventing inconsistent conversation state.
 
-        def _db_client_config() -> dict | None:
-            """Load client config from DB by Twilio phone number or fallback to first active client."""
-            try:
-                # Match by Twilio phone number if available — multi-tenant routing.
-                # Use a fresh query builder for each call — older supabase-py versions
-                # (≤2.15) mutate the builder in place, so reusing `query` would stack
-                # filters and silently return empty on the fallback path.
-                if phone_num:
-                    res = supabase.table("clients").select("*").eq("twilio_phone_number", phone_num).limit(1).execute()
-                    if res.data:
-                        row = res.data[0]
-                        # Suspended clients: return config so the webhook can
-                        # return a "service unavailable" message — don't silently drop.
-                        return _row_to_config(row)
-                # Fallback: oldest active client by created_at (dev/single-tenant mode).
-                # ORDER BY created_at ensures deterministic result — without it Postgres
-                # returns an arbitrary row when multiple active clients exist.
-                res = supabase.table("clients").select("*").eq("is_active", True).order("created_at").limit(1).execute()
-                if res.data:
-                    return _row_to_config(res.data[0])
-            except Exception as exc:
-                logger.warning("DB client lookup failed", error=str(exc))
-            return None
-
-        def _row_to_config(row: dict) -> dict:
-            """Map a clients DB row to the client_config dict used by the agent."""
-            return {
-                "id": str(row["id"]),
-                "business_name": row["business_name"],
-                "bot_name": row.get("bot_name") or "Alex",
-                "emergency_phone_number": row["emergency_phone_number"],
-                "main_phone_number": row.get("main_phone_number") or "",
-                "is_ai_enabled": row.get("is_ai_enabled", True),
-                "timezone": row.get("timezone") or "America/New_York",
-                "missed_call_threshold_seconds": int(row.get("missed_call_threshold_seconds") or 30),
-                "appointment_duration_minutes": int(row.get("appointment_duration_minutes") or 60),
-                "working_hours": row.get("working_hours") or {},
-                "services_offered": row.get("services_offered") or [],
-                "service_area_description": row.get("service_area_description") or "",
-                "google_review_link": row.get("google_review_link") or "",
-                "is_active": row.get("is_active", True),
-                "fsm_type": row.get("fsm_type"),
-                "jobber_api_key": row.get("jobber_api_key") or "",
-                "housecall_pro_api_key": row.get("housecall_pro_api_key") or "",
-            }
-
-        def _db_conversation_state() -> dict:
-            default: dict = {"current_node": "greeting", "is_emergency": False}
-            try:
-                res = (
-                    supabase.table("conversation_state")
-                    .select("*")
-                    .eq("call_id", call_id)
-                    .limit(1)
-                    .execute()
-                )
-                if res.data:
-                    row = res.data[0]
-                    import json as _json
-                    # Recover persisted available_slots and cached client_config
-                    # from sentinel message entries. Sentinel roles:
-                    #   __slots__        → available time slots (JSON array)
-                    #   __client_config__ → client config cached at call start (JSON object)
-                    available_slots: list = []
-                    cached_config: dict | None = None
-                    call_outcome: str | None = None
-                    for msg in row.get("messages") or []:
-                        role = msg.get("role")
-                        if role == "__slots__":
-                            try:
-                                available_slots = _json.loads(msg.get("content", "[]"))
-                            except Exception:
-                                available_slots = []
-                        elif role == "__client_config__":
-                            try:
-                                cached_config = _json.loads(msg.get("content", "{}"))
-                            except Exception:
-                                cached_config = None
-                        elif role == "__call_outcome__":
-                            call_outcome = msg.get("content")
-                    return {
-                        "current_node": row.get("current_node", "greeting"),
-                        "is_emergency": row.get("is_emergency", False),
-                        "caller_name": row.get("caller_name"),
-                        "caller_phone": row.get("caller_phone"),
-                        "caller_address": row.get("caller_address"),
-                        "problem_description": row.get("problem_description"),
-                        "collection_complete": row.get("collection_complete", False),
-                        "booking_complete": row.get("booking_complete", False),
-                        "available_slots": available_slots,
-                        "cached_client_config": cached_config,
-                        "call_outcome": call_outcome,
-                    }
-            except Exception as exc:
-                logger.warning("State lookup failed", error=str(exc))
-            return default
-
         client_config_from_db, state_data = await asyncio.gather(
-            loop.run_in_executor(None, _db_client_config),
-            loop.run_in_executor(None, _db_conversation_state),
+            loop.run_in_executor(None, lambda: _db_client_config(supabase, phone_num)),
+            loop.run_in_executor(None, lambda: _db_conversation_state(supabase, call_id)),
         )
 
         # Config intentionally cached at call start — settings changes take effect

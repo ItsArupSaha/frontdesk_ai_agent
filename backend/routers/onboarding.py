@@ -18,7 +18,6 @@ at the bottom of this module.
 """
 from __future__ import annotations
 
-import re
 import secrets
 import string
 import uuid
@@ -37,6 +36,12 @@ from backend.services.calendar_service import (
     handle_oauth_callback,
 )
 from backend.utils.logging import get_logger
+from backend.utils.validators import (
+    validate_area_code,
+    validate_business_name,
+    validate_email,
+    validate_phone,
+)
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -99,10 +104,6 @@ async def google_callback(code: str, state: str) -> HTMLResponse:
 # Client creation — POST /api/clients/create
 # ---------------------------------------------------------------------------
 
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_E164_RE = re.compile(r"^\+1[2-9]\d{9}$")  # US E.164
-
-
 class ClientCreatePayload(BaseModel):
     """Input for POST /api/clients/create."""
 
@@ -121,35 +122,23 @@ class ClientCreatePayload(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v: str) -> str:
-        """Ensure email is a valid format."""
-        if not _EMAIL_RE.match(v):
-            raise ValueError("Invalid email format")
-        return v.lower().strip()
+    def _validate_email(cls, v: str) -> str:
+        return validate_email(v)
 
     @field_validator("emergency_phone")
     @classmethod
-    def validate_phone(cls, v: str) -> str:
-        """Ensure emergency_phone is US E.164 format (+1XXXXXXXXXX)."""
-        if not _E164_RE.match(v):
-            raise ValueError("emergency_phone must be US E.164 format: +1XXXXXXXXXX")
-        return v
+    def _validate_phone(cls, v: str) -> str:
+        return validate_phone(v)
 
     @field_validator("business_name")
     @classmethod
-    def validate_business_name(cls, v: str) -> str:
-        """Ensure business_name is not empty."""
-        if not v.strip():
-            raise ValueError("business_name is required")
-        return v.strip()
+    def _validate_business_name(cls, v: str) -> str:
+        return validate_business_name(v)
 
     @field_validator("area_code")
     @classmethod
-    def validate_area_code(cls, v: str) -> str:
-        """Ensure area_code is exactly 3 digits."""
-        if not re.fullmatch(r"\d{3}", v):
-            raise ValueError("area_code must be exactly 3 digits")
-        return v
+    def _validate_area_code(cls, v: str) -> str:
+        return validate_area_code(v)
 
 
 def _generate_temp_password(length: int = 16) -> str:
@@ -175,35 +164,23 @@ class OnboardingSubmitPayload(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, v: str) -> str:
-        """Ensure email is a valid format."""
-        if not _EMAIL_RE.match(v):
-            raise ValueError("Invalid email format")
-        return v.lower().strip()
+    def _validate_email(cls, v: str) -> str:
+        return validate_email(v)
 
     @field_validator("emergency_phone")
     @classmethod
-    def validate_phone(cls, v: str) -> str:
-        """Ensure emergency_phone is US E.164 format (+1XXXXXXXXXX)."""
-        if not _E164_RE.match(v):
-            raise ValueError("emergency_phone must be US E.164 format: +1XXXXXXXXXX")
-        return v
+    def _validate_phone(cls, v: str) -> str:
+        return validate_phone(v)
 
     @field_validator("business_name")
     @classmethod
-    def validate_business_name(cls, v: str) -> str:
-        """Ensure business_name is not empty."""
-        if not v.strip():
-            raise ValueError("business_name is required")
-        return v.strip()
+    def _validate_business_name(cls, v: str) -> str:
+        return validate_business_name(v)
 
     @field_validator("area_code")
     @classmethod
-    def validate_area_code(cls, v: str) -> str:
-        """Ensure area_code is exactly 3 digits."""
-        if not re.fullmatch(r"\d{3}", v):
-            raise ValueError("area_code must be exactly 3 digits")
-        return v
+    def _validate_area_code(cls, v: str) -> str:
+        return validate_area_code(v)
 
 
 @router.post("/api/onboarding/submit")

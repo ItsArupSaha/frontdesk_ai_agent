@@ -9,6 +9,7 @@ import structlog
 from twilio.rest import Client as TwilioClient
 
 from backend.config import settings
+from backend.utils.message_builders import booking_confirmation_sms, missed_call_recovery_sms
 
 logger = structlog.get_logger(__name__)
 
@@ -161,11 +162,7 @@ def send_booking_confirmation(booking_details: dict, client_config: dict) -> dic
         )
         return {"success": False, "error": "sms_not_enabled"}
 
-    message = (
-        f"Hi {caller_name}! Your appointment with {business_name} is confirmed "
-        f"for {appointment_label}. We'll see you then! Reply STOP to opt out."
-    )
-
+    message = booking_confirmation_sms(caller_name, business_name, appointment_label)
     return send_sms(caller_phone, message, client_id)
 
 
@@ -194,14 +191,5 @@ def send_missed_call_recovery(
         )
         return {"success": False, "error": "sms_not_enabled"}
 
-    if calling_number:
-        message = (
-            f"Hi, we're sorry for any inconvenience during your recent call with {business_name}. "
-            f"Please call us back at {calling_number} and we'll be happy to assist you."
-        )
-    else:
-        message = (
-            f"Hi, we're sorry for any inconvenience during your recent call with {business_name}. "
-            f"Please give us a call back and we'll be happy to assist you."
-        )
+    message = missed_call_recovery_sms(business_name, calling_number)
     return send_sms(caller_number, message, client_id)

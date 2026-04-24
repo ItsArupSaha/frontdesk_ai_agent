@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from backend.db.client import get_supabase
 from backend.utils.logging import get_logger
 from backend.utils.auth import get_current_user as _get_current_user, is_admin as _is_admin
+from backend.utils.message_builders import review_request_sms as _review_request_sms
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -666,18 +667,8 @@ async def update_booking_status(
                 from backend.services.sms_service import send_sms, _is_sms_enabled
                 if not _is_sms_enabled(client_id):
                     logger.info("Review SMS blocked — sms_not_enabled", client_id=client_id)
-                elif review_link:
-                    review_msg = (
-                        f"Hi {caller_name}! Hope {business_name} took great care of you. "
-                        f"Mind leaving a quick review? It means a lot: "
-                        f"https://g.page/{review_link}/review  Reply STOP to opt out."
-                    )
-                    send_sms(caller_phone, review_msg, client_id)
                 else:
-                    review_msg = (
-                        f"Hi {caller_name}! Hope {business_name} took great care of you. "
-                        f"We'd love your feedback — give us a call anytime!  Reply STOP to opt out."
-                    )
+                    review_msg = _review_request_sms(caller_name, business_name, review_link or None)
                     send_sms(caller_phone, review_msg, client_id)
                 logger.info("Review request sent on completion", booking_id=booking_id)
             except Exception as exc:

@@ -462,9 +462,128 @@ function LiveBookingVisual() {
   );
 }
 
+function FollowUpVisual() {
+  return (
+    <div className="relative h-full min-h-[320px] overflow-hidden rounded-[20px] border border-[rgba(45,212,191,0.14)] bg-[radial-gradient(circle_at_top,rgba(13,148,136,0.18),rgba(10,10,14,0.98)_60%)] p-5 sm:p-6">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(45,212,191,0.09),transparent_34%)]" />
+      <div className="absolute inset-x-12 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(45,212,191,0.55),transparent)]" />
+
+      <div className="relative z-10 flex h-full flex-col">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[0.68rem] uppercase tracking-[0.26em] text-white/40">Follow-Up Flow</p>
+            <p className="mt-2 text-base font-medium tracking-[-0.03em] text-white/92">Confirm. Remind. Recover.</p>
+          </div>
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(45,212,191,0.18)] bg-[rgba(45,212,191,0.08)]">
+            <MessageSquareText className="h-4.5 w-4.5 text-teal-100" />
+          </div>
+        </div>
+
+        <div className="relative mt-5 flex-1 rounded-[24px] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.02))] p-4 shadow-[0_20px_60px_rgba(0,0,0,0.28)]">
+          <div className="absolute left-[36px] top-[74px] bottom-[30px] w-px bg-[linear-gradient(180deg,rgba(45,212,191,0.22),rgba(56,189,248,0.18),rgba(168,85,247,0.1),transparent)]" />
+
+          <div className="relative space-y-3.5">
+            <motion.div
+              className="relative ml-7 rounded-[18px] border border-[rgba(45,212,191,0.16)] bg-[rgba(45,212,191,0.08)] px-4 py-3"
+              animate={{ y: [0, -2, 0], boxShadow: ["0 0 0 rgba(45,212,191,0)", "0 0 28px rgba(45,212,191,0.08)", "0 0 0 rgba(45,212,191,0)"] }}
+              transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <div className="absolute -left-[30px] top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-teal-300 shadow-[0_0_18px_rgba(45,212,191,0.85)]" />
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[0.7rem] uppercase tracking-[0.22em] text-teal-100/72">Booking confirmed</p>
+                  <p className="mt-1 text-sm font-medium text-white/90">SMS sent instantly</p>
+                </div>
+                <span className="rounded-full border border-[rgba(45,212,191,0.14)] px-2 py-0.5 text-[0.65rem] uppercase tracking-[0.18em] text-teal-100/72">
+                  now
+                </span>
+              </div>
+            </motion.div>
+
+            <div className="grid gap-3 lg:grid-cols-[1.05fr_0.95fr]">
+              <motion.div
+                className="relative ml-7 rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-4"
+                animate={{ borderColor: ["rgba(255,255,255,0.08)", "rgba(56,189,248,0.18)", "rgba(255,255,255,0.08)"] }}
+                transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <div className="absolute -left-[30px] top-8 h-3 w-3 rounded-full bg-sky-300 shadow-[0_0_16px_rgba(56,189,248,0.75)]" />
+                <p className="text-[0.7rem] uppercase tracking-[0.22em] text-white/44">Reminder queue</p>
+                <div className="mt-4 flex items-center justify-between rounded-[14px] border border-[rgba(56,189,248,0.14)] bg-[rgba(56,189,248,0.07)] px-3 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[rgba(56,189,248,0.16)] bg-[rgba(56,189,248,0.08)]">
+                      <Clock3 className="h-4.5 w-4.5 text-sky-200" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white/90">24h reminder</p>
+                      <p className="text-[0.72rem] text-white/40">Queued before visit</p>
+                    </div>
+                  </div>
+                  <motion.div
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-[rgba(56,189,248,0.18)]"
+                    animate={{ rotate: [0, 360] }}
+                    transition={{ duration: 5.5, repeat: Infinity, ease: "linear" }}
+                  >
+                    <div className="h-2 w-2 rounded-full bg-sky-300 shadow-[0_0_14px_rgba(56,189,248,0.9)]" />
+                  </motion.div>
+                </div>
+              </motion.div>
+
+              <motion.div
+                className="relative rounded-[18px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-4"
+                animate={{ y: [0, -3, 0] }}
+                transition={{ duration: 3.1, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <p className="text-[0.7rem] uppercase tracking-[0.22em] text-white/44">Call summary</p>
+                <div className="mt-4 space-y-2">
+                  {["Leak source logged", "Booking time attached", "Team note synced"].map((line, index) => (
+                    <motion.div
+                      key={line}
+                      className="flex items-center gap-3 rounded-[12px] border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.025)] px-3 py-2.5"
+                      animate={{ opacity: [0.38, 1, 0.38] }}
+                      transition={{ duration: 2.4, repeat: Infinity, delay: index * 0.45, ease: "easeInOut" }}
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-violet-300 shadow-[0_0_12px_rgba(196,181,253,0.9)]" />
+                      <span className="text-[0.76rem] text-white/74">{line}</span>
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            </div>
+
+            <motion.div
+              className="relative ml-7 rounded-[18px] border border-[rgba(168,85,247,0.14)] bg-[rgba(168,85,247,0.08)] px-4 py-3"
+              animate={{ scale: [1, 1.02, 1], boxShadow: ["0 0 0 rgba(168,85,247,0)", "0 0 24px rgba(168,85,247,0.08)", "0 0 0 rgba(168,85,247,0)"] }}
+              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <div className="absolute -left-[30px] top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-violet-300 shadow-[0_0_18px_rgba(168,85,247,0.8)]" />
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[0.7rem] uppercase tracking-[0.22em] text-violet-100/70">Missed call recovery</p>
+                  <p className="mt-1 text-sm font-medium text-white/90">SMS resend goes out automatically</p>
+                </div>
+                <motion.div
+                  className="rounded-full border border-[rgba(168,85,247,0.18)] bg-[rgba(255,255,255,0.04)] px-2.5 py-1 text-[0.66rem] uppercase tracking-[0.18em] text-violet-100/80"
+                  animate={{ opacity: [0.45, 1, 0.45] }}
+                  transition={{ duration: 1.9, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  resend
+                </motion.div>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TaskFeedVisual({ featureId }: { featureId: string }) {
   if (featureId === "delegate") {
     return <EmergencyDispatchVisual />;
+  }
+
+  if (featureId === "systems") {
+    return <FollowUpVisual />;
   }
 
   const feed = taskFeedByFeature[featureId] ?? taskFeedByFeature.automate;
@@ -519,6 +638,7 @@ function TaskFeedVisual({ featureId }: { featureId: string }) {
 export function FeatureRow({ feature, reverse = false }: FeatureRowProps) {
   const usesCustomEmergencyVisual = feature.id === "delegate";
   const usesCustomBookingVisual = feature.id === "sales";
+  const usesCustomFollowUpVisual = feature.id === "systems";
 
   return (
     <motion.article
@@ -534,19 +654,21 @@ export function FeatureRow({ feature, reverse = false }: FeatureRowProps) {
       />
       <motion.div
         variants={splitReveal(reverse ? "right" : "left")}
-        className={reverse ? "relative z-10 lg:order-2" : "relative z-10"}
+        className={reverse ? "relative z-10 lg:order-2 lg:self-stretch" : "relative z-10 lg:self-stretch"}
       >
         <motion.div
           variants={cardHover}
           initial="rest"
           whileHover="hover"
           animate="rest"
-          className="relative overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(13,13,17,0.96),rgba(8,8,10,0.96))] p-6 sm:p-7"
+          className="relative h-full overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(13,13,17,0.96),rgba(8,8,10,0.96))] p-6 sm:p-7"
         >
           {usesCustomEmergencyVisual ? (
             <EmergencyDispatchVisual />
           ) : usesCustomBookingVisual ? (
             <LiveBookingVisual />
+          ) : usesCustomFollowUpVisual ? (
+            <FollowUpVisual />
           ) : (
             <>
               <div className="absolute inset-x-10 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(139,92,246,0.55),transparent)]" />
@@ -593,7 +715,7 @@ export function FeatureRow({ feature, reverse = false }: FeatureRowProps) {
 
       <motion.div
         variants={staggerContainer}
-        className={reverse ? "relative z-10 lg:order-1" : "relative z-10"}
+        className={reverse ? "relative z-10 lg:order-1 lg:self-center" : "relative z-10 lg:self-center"}
       >
         <motion.p
           variants={staggerItem}

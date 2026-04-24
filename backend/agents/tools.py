@@ -202,26 +202,15 @@ def build_tools(client_config: dict, client_id: str = ""):
         # Queue 24h reminder only. Review request is NOT auto-queued —
         # it fires when admin marks booking as "completed" in the dashboard.
         try:
-            from datetime import timedelta
-            from backend.db.client import get_supabase
-
-            appt_start_dt = datetime.fromisoformat(slot_start)
-            reminder_at = appt_start_dt - timedelta(hours=24)
-
-            reminder_msg = (
-                f"Reminder: {business_name} appointment tomorrow at {slot_label}. "
-                f"Address: {caller_address}. Questions? Reply here."
+            from backend.services import reminder_service
+            reminder_service.queue_booking_reminder(
+                client_id=client_id,
+                caller_phone=caller_phone,
+                business_name=business_name,
+                appointment_label=slot_label,
+                caller_address=caller_address,
+                appointment_start=slot_start,
             )
-
-            supabase = get_supabase()
-            supabase.table("reminders_queue").insert([{
-                "client_id": client_id,
-                "type": "reminder",
-                "to_number": caller_phone,
-                "scheduled_for": reminder_at.isoformat(),
-                "message_body": reminder_msg,
-            }]).execute()
-            logger.info("Reminder queued", client_id=client_id)
         except Exception as exc:
             logger.error("Failed to queue booking reminder", client_id=client_id, error=str(exc))
 
