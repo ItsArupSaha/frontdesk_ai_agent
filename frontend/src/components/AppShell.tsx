@@ -61,7 +61,7 @@ export function AppShell({ children }: AppShellProps) {
 
       <div className="relative z-10 flex h-full overflow-hidden">
         <DashboardSidebar />
-        <main className="flex h-full flex-1 overflow-hidden px-4 py-4 md:px-5 md:py-5 xl:pl-0">
+        <main className="flex h-full flex-1 overflow-hidden px-4 pb-4 pt-16 md:px-5 md:pb-5 md:pt-16 lg:pt-4 lg:pl-0">
           <div className="h-full w-full overflow-y-auto rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(14,11,24,0.78),rgba(9,8,17,0.88))] shadow-[0_30px_90px_rgba(0,0,0,0.28)] backdrop-blur-xl">
             {children}
           </div>
