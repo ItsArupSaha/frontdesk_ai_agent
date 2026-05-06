@@ -8,7 +8,7 @@ const NAV_LINKS = [
   { label: "Home", href: "#home" },
   { label: "Solutions", href: "#solutions" },
   { label: "Pricing", href: "#pricing" },
-  { label: "FAQ", href: "#footer" },
+  { label: "FAQ", href: "#faq" },
 ];
 
 export function Navbar() {
@@ -43,7 +43,7 @@ export function Navbar() {
       style={{ backgroundColor: "rgba(0,0,0,0.72)" }}
     >
       <div className="mx-auto flex max-w-[1240px] items-center justify-between px-5 py-3 sm:px-8">
-        <a href="#home" className="flex items-center gap-2.5" aria-label="Xtract home">
+        <a href="#home" className="flex items-center gap-2.5" aria-label="FrondexAI home">
           <span
             className="flex h-7 w-7 items-center justify-center rounded-[6px]"
             style={{
@@ -52,11 +52,9 @@ export function Navbar() {
             }}
             aria-hidden="true"
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M2 2L12 12M12 2L2 12" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
-            </svg>
+            <span className="text-xs font-bold text-white">F</span>
           </span>
-          <span className="text-sm font-bold tracking-[0.18em] text-white">XTRACT</span>
+          <span className="text-sm font-bold tracking-[0.18em] text-white">FRONDEXAI</span>
         </a>
 
         <nav className="hidden items-center gap-7 md:flex" aria-label="Primary navigation">
