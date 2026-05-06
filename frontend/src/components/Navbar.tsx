@@ -43,17 +43,7 @@ export function Navbar() {
       style={{ backgroundColor: "rgba(0,0,0,0.72)" }}
     >
       <div className="mx-auto flex max-w-[1240px] items-center justify-between px-5 py-3 sm:px-8">
-        <a href="#home" className="flex items-center gap-2.5" aria-label="FrondexAI home">
-          <span
-            className="flex h-7 w-7 items-center justify-center rounded-[6px]"
-            style={{
-              background: "linear-gradient(135deg,#7C3AED 0%,#5B21B6 100%)",
-              boxShadow: "0 0 14px rgba(124,58,237,0.40)",
-            }}
-            aria-hidden="true"
-          >
-            <span className="text-xs font-bold text-white">F</span>
-          </span>
+        <a href="#home" aria-label="FrondexAI home">
           <span className="text-sm font-bold tracking-[0.18em] text-white">FRONDEXAI</span>
         </a>
 
