@@ -1,110 +1,165 @@
-import { CheckCircle2, Zap, Phone, MessageSquare, BarChart2, Shield } from "lucide-react";
+import { Check, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
+import { rootStyles } from "../lib/design-tokens";
 
-// Replace this URL with your actual LemonSqueezy product/checkout URL.
-const LEMONSQUEEZY_CHECKOUT_URL = "https://arupsaha.lemonsqueezy.com/buy/YOUR_PRODUCT_ID";
+const CHECKOUT_STARTER = "https://arupsaha.lemonsqueezy.com/buy/STARTER_PRODUCT_ID";
+const CHECKOUT_PRO = "https://arupsaha.lemonsqueezy.com/buy/PRO_PRODUCT_ID";
 
-const features = [
-  { icon: Phone, text: "24/7 AI receptionist answers every call" },
-  { icon: CheckCircle2, text: "Automatic appointment booking via Google Calendar" },
-  { icon: MessageSquare, text: "SMS confirmations & reminders (after activation)" },
-  { icon: Zap, text: "Emergency detection & instant escalation" },
-  { icon: BarChart2, text: "Real-time dashboard — calls, bookings, analytics" },
-  { icon: Shield, text: "Zero-downtime, multi-tenant, production-grade" },
+const plans = [
+  {
+    name: "Starter",
+    price: "$99",
+    setupFee: "$100 one-time setup",
+    description: "Perfect for small trades businesses ready to stop missing calls and start booking more jobs.",
+    checkoutUrl: CHECKOUT_STARTER,
+    featured: false,
+    features: [
+      "24/7 AI call answering",
+      "Lead qualification & job intake",
+      "Emergency detection & live transfer",
+      "Google Calendar sync & booking",
+      "Missed-call voicemail handling",
+      "Call logs & bookings dashboard",
+      "Email support",
+    ],
+  },
+  {
+    name: "Pro",
+    price: "$149",
+    setupFee: "$100 one-time setup",
+    description: "For businesses that want full automation — confirmations, reminders, and follow-up on autopilot.",
+    checkoutUrl: CHECKOUT_PRO,
+    featured: true,
+    features: [
+      "Everything in Starter",
+      "SMS booking confirmations",
+      "24h appointment reminders",
+      "Missed-call recovery SMS",
+      "Google review request SMS",
+      "Priority email support",
+      "Settings & hours via dashboard",
+    ],
+  },
 ];
 
 const steps = [
-  { step: "1", title: "Pay securely", body: "One-click checkout via LemonSqueezy. Instant confirmation." },
-  { step: "2", title: "Fill onboarding form", body: "Tell us about your business — services, hours, coverage area." },
-  { step: "3", title: "We activate your agent", body: "Usually within 1 business day. Voice calls live immediately." },
-  { step: "4", title: "Forward your calls", body: "Point your existing number to your new AI agent — done." },
+  { n: "1", title: "Pay securely", body: "Checkout via LemonSqueezy. Instant confirmation." },
+  { n: "2", title: "Fill onboarding form", body: "Tell us your services, hours, and coverage area." },
+  { n: "3", title: "We activate your agent", body: "Usually within 1 business day." },
+  { n: "4", title: "Forward your calls", body: "Point your number to your new AI agent — done." },
 ];
 
 export default function PaymentPage() {
   return (
-    <div className="min-h-screen bg-[#06050a] px-4 py-16 text-white">
-      <div className="mx-auto max-w-3xl">
-        {/* Header */}
+    <div style={rootStyles} className="min-h-screen bg-[var(--bg-primary)] px-4 py-12 text-[var(--text-primary)] sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[900px]">
+        <Link
+          to="/"
+          className="mb-10 inline-flex items-center gap-2 text-sm text-[var(--text-muted)] transition-colors hover:text-white"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to home
+        </Link>
+
         <div className="mb-12 text-center">
-          <p className="mb-3 text-xs uppercase tracking-[0.3em] text-violet-300/70">Get Started</p>
-          <h1 className="text-[clamp(2rem,5vw,3.5rem)] font-semibold leading-tight tracking-[-0.06em]">
-            Your AI front-desk,<br />ready in 24 hours.
+          <p className="mb-3 text-[11px] uppercase tracking-[0.3em] text-[var(--accent-bright)]/70">Get Started</p>
+          <h1 className="text-[clamp(1.9rem,4vw,3rem)] font-semibold leading-tight tracking-[-0.05em] text-white">
+            Your AI front-desk, ready in 24 hours.
           </h1>
-          <p className="mx-auto mt-4 max-w-md text-sm leading-7 text-white/55">
-            One flat monthly fee. No per-minute surprises. Cancel anytime.
+          <p className="mx-auto mt-4 max-w-md text-sm leading-7 text-[var(--text-secondary)]">
+            One-time setup fee. One flat monthly rate. No per-minute charges. Cancel anytime.
           </p>
         </div>
 
-        {/* Pricing card */}
-        <div className="mb-10 rounded-[32px] border border-violet-400/20 bg-[linear-gradient(135deg,rgba(70,56,190,0.18),rgba(11,9,20,0.95))] p-8 text-center shadow-[0_28px_80px_rgba(109,74,255,0.12)]">
-          <p className="text-sm text-white/50">Monthly subscription</p>
-          <div className="mt-3 flex items-end justify-center gap-1">
-            <span className="text-[3.5rem] font-semibold leading-none tracking-[-0.06em] text-white">$150</span>
-            <span className="mb-2 text-white/40">/mo</span>
-          </div>
-          <p className="mt-2 text-xs text-white/35">per business location</p>
-
-          <div className="my-8 border-t border-white/8" />
-
-          <ul className="space-y-3 text-left">
-            {features.map((f) => {
-              const Icon = f.icon;
-              return (
-                <li key={f.text} className="flex items-center gap-3 text-sm text-white/75">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/15">
-                    <Icon className="h-3.5 w-3.5 text-violet-300" />
-                  </span>
-                  {f.text}
-                </li>
-              );
-            })}
-          </ul>
-
-          <a
-            href={LEMONSQUEEZY_CHECKOUT_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-8 flex w-full items-center justify-center gap-2 rounded-full bg-violet-500 py-4 text-sm font-semibold text-white shadow-[0_4px_20px_rgba(109,74,255,0.4)] transition-colors hover:bg-violet-400"
-          >
-            Subscribe — $150/mo
-          </a>
-          <p className="mt-3 text-xs text-white/30">Secure payment via LemonSqueezy · Cancel anytime</p>
-
-          <div className="mt-4 border-t border-white/8 pt-4">
-            <p className="text-xs text-white/35 mb-2">Already subscribed?</p>
-            <Link
-              to="/onboarding"
-              className="flex w-full items-center justify-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/10 py-3 text-sm font-medium text-emerald-200 transition-colors hover:bg-emerald-500/18"
+        {/* Plan cards */}
+        <div className="grid gap-6 md:grid-cols-2">
+          {plans.map((plan) => (
+            <div
+              key={plan.name}
+              className={[
+                "relative flex h-full flex-col rounded-[var(--radius-card)] border p-7",
+                plan.featured
+                  ? "border-[rgba(139,92,246,0.4)] bg-[linear-gradient(180deg,rgba(25,16,42,0.97),rgba(13,13,17,0.98))]"
+                  : "border-[var(--border-default)] bg-[rgba(13,13,17,0.96)]",
+              ].join(" ")}
             >
-              Set Up My Account →
-            </Link>
-          </div>
+              {plan.featured && (
+                <span className="mb-5 inline-flex w-fit rounded-full border border-[rgba(139,92,246,0.28)] bg-[rgba(124,58,237,0.12)] px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-[var(--accent-bright)]">
+                  Most Popular
+                </span>
+              )}
+
+              <h3 className="text-xl font-medium text-white">{plan.name}</h3>
+
+              <div className="mt-4 flex items-end gap-1.5">
+                <span className="text-5xl font-semibold tracking-[-0.05em] text-white">{plan.price}</span>
+                <span className="mb-1 text-sm text-[var(--text-muted)]">/ month</span>
+              </div>
+              <p className="mt-2 text-xs text-[var(--text-low)]">+ {plan.setupFee}</p>
+
+              <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">{plan.description}</p>
+
+              <div className="my-6 h-px bg-[var(--border-muted)]" />
+
+              <ul className="flex-1 space-y-3.5">
+                {plan.features.map((feature) => (
+                  <li key={feature} className="flex items-start gap-3 text-sm text-[var(--text-secondary)]">
+                    <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[rgba(139,92,246,0.25)] bg-[rgba(124,58,237,0.1)]">
+                      <Check className="h-3 w-3 text-[var(--accent-bright)]" />
+                    </span>
+                    <span>{feature}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-auto pt-8">
+                <a
+                  href={plan.checkoutUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={[
+                    "inline-flex w-full items-center justify-center rounded-[var(--radius-button)] border px-4 py-3 text-sm font-medium transition-colors duration-200",
+                    plan.featured
+                      ? "border-[rgba(139,92,246,0.35)] bg-[linear-gradient(135deg,#7C3AED_0%,#8B5CF6_100%)] text-white shadow-[var(--shadow-button)]"
+                      : "border-[var(--border-default)] bg-[rgba(255,255,255,0.02)] text-[var(--text-primary)] hover:border-[rgba(139,92,246,0.28)] hover:bg-[rgba(255,255,255,0.04)]",
+                  ].join(" ")}
+                >
+                  Get Started — {plan.price}/mo
+                </a>
+                <p className="mt-3 text-center text-[11px] text-[var(--text-low)]">
+                  Secure checkout · Cancel anytime
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* How it works */}
-        <div className="rounded-[28px] border border-white/8 bg-white/[0.02] p-7">
-          <h2 className="mb-6 text-center text-base font-medium text-white/80">How it works</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
+        <div className="mt-14">
+          <h2 className="mb-6 text-center text-[11px] uppercase tracking-[0.3em] text-[var(--text-muted)]">
+            How it works
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {steps.map((s) => (
               <div
-                key={s.step}
-                className="rounded-[20px] border border-white/8 bg-white/[0.03] p-5"
+                key={s.n}
+                className="rounded-[var(--radius-card)] border border-[var(--border-default)] bg-[rgba(13,13,17,0.96)] p-5"
               >
-                <div className="mb-3 flex h-7 w-7 items-center justify-center rounded-full bg-violet-500/15 text-xs font-semibold text-violet-300">
-                  {s.step}
+                <div className="mb-3 flex h-7 w-7 items-center justify-center rounded-full border border-[rgba(139,92,246,0.25)] bg-[rgba(124,58,237,0.1)] text-xs font-semibold text-[var(--accent-bright)]">
+                  {s.n}
                 </div>
                 <p className="mb-1 text-sm font-medium text-white">{s.title}</p>
-                <p className="text-xs leading-relaxed text-white/45">{s.body}</p>
+                <p className="text-xs leading-relaxed text-[var(--text-muted)]">{s.body}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="mt-8 text-center text-xs text-white/28">
-          Questions before subscribing?{" "}
+        <p className="mt-10 text-center text-xs text-[var(--text-low)]">
+          Questions?{" "}
           <a
             href="mailto:growwitharup@gmail.com"
-            className="text-violet-300 underline underline-offset-2"
+            className="text-[var(--accent-bright)] underline underline-offset-2 hover:opacity-80"
           >
             Email us
           </a>{" "}
