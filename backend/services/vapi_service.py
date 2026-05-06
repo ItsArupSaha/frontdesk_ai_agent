@@ -33,35 +33,73 @@ def _headers() -> dict[str, str]:
     }
 
 
+def _format_hours(hrs_str: str) -> str:
+    """Convert '8am-6pm' to '8am to 6pm' so TTS reads naturally."""
+    return hrs_str.replace("-", " to ")
+
+
 def _system_prompt(
     business_name: str,
     services: list[str],
     working_hours: dict,
     service_area: str = "",
+    bot_name: str = "Alex",
 ) -> str:
     """Build the system prompt for a new Vapi assistant."""
     services_str = ", ".join(services) if services else "home services"
     hours_lines = "\n".join(
-        f"  {day}: {hrs}" for day, hrs in working_hours.items()
-    ) if working_hours else "  Mon-Fri: 8am-6pm"
+        f"  {day.capitalize()}: {_format_hours(str(hrs))}"
+        for day, hrs in working_hours.items()
+    ) if working_hours else "  Mon to Fri: 8am to 6pm"
     area_line = f"\nService area: {service_area}" if service_area else ""
 
     return (
-        f"You are Alex, the AI receptionist for {business_name}. "
+        f"You are {bot_name}, the AI receptionist for {business_name}. "
         f"You answer inbound calls 24/7 for a {services_str} business."
         f"{area_line}\n\n"
         f"Your job:\n"
         f"1. Greet callers warmly and find out how you can help.\n"
-        f"2. If asked about service area, hours, or services — answer directly from the info above. "
+        f"2. If asked about service area, hours, or services — answer directly and naturally. "
         f"Never say you don't have that information.\n"
-        f"3. Detect emergencies (burst pipes, gas leaks, sparking wires, no heat) "
+        f"3. For detailed questions about the business (pricing, specific services, policies) — "
+        f"use the get_business_info function to look it up.\n"
+        f"4. Detect emergencies (burst pipes, gas leaks, sparking wires, no heat) "
         f"and escalate immediately.\n"
-        f"4. Qualify the lead — get name, address, problem description.\n"
-        f"5. Book appointments during working hours:\n{hours_lines}\n"
-        f"6. Send SMS confirmation once booked.\n\n"
+        f"5. Qualify the lead — get name, address, problem description.\n"
+        f"6. Book appointments during working hours:\n{hours_lines}\n"
+        f"7. Send SMS confirmation once booked.\n\n"
         f"Always be professional, empathetic, and efficient. "
+        f"Speak naturally — like a real person, not a robot. "
         f"If you can't help, offer to connect them with a human."
     )
+
+
+def _get_business_info_tool() -> dict:
+    """Return the Vapi tool definition for get_business_info (RAG lookup)."""
+    return {
+        "type": "function",
+        "function": {
+            "name": "get_business_info",
+            "description": (
+                "Look up detailed information about the business — pricing, specific services, "
+                "policies, promotions, warranties, or anything from the company knowledge base. "
+                "Call this whenever a caller asks a question you don't know the answer to."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "The caller's question, verbatim.",
+                    }
+                },
+                "required": ["question"],
+            },
+        },
+        "server": {
+            "url": f"{settings.vapi_webhook_base_url}/webhook/vapi",
+        },
+    }
 
 
 async def create_assistant(client_config: dict, client_id: str) -> str:
@@ -83,6 +121,7 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
         VapiServiceError: on any API error.
     """
     business_name: str = client_config.get("business_name", "Our Business")
+    bot_name: str = client_config.get("bot_name") or "Alex"
     services: list[str] = client_config.get("services_offered", [])
     working_hours: dict = client_config.get("working_hours", {})
     service_area: str = client_config.get("service_area_description", "")
@@ -97,9 +136,10 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
             "messages": [
                 {
                     "role": "system",
-                    "content": _system_prompt(business_name, services, working_hours, service_area),
+                    "content": _system_prompt(business_name, services, working_hours, service_area, bot_name),
                 }
             ],
+            "tools": [_get_business_info_tool()],
         },
         "voice": {
             "provider": "11labs",
@@ -107,7 +147,7 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
             "model": "eleven_flash_v2_5",
         },
         "firstMessage": (
-            f"Thanks for calling {business_name}, this is Alex! "
+            f"Thanks for calling {business_name}, this is {bot_name}! "
             f"How can I help you today?"
         ),
         "serverUrl": webhook_url,
@@ -158,6 +198,7 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
         VapiServiceError: on any API error.
     """
     business_name: str = client_config.get("business_name", "Our Business")
+    bot_name: str = client_config.get("bot_name") or "Alex"
     services: list[str] = client_config.get("services_offered", [])
     working_hours: dict = client_config.get("working_hours", {})
     service_area: str = client_config.get("service_area_description", "")
@@ -166,7 +207,7 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
     patch_payload: dict = {
         "name": f"{business_name} Agent",
         "firstMessage": (
-            f"Thanks for calling {business_name}, this is Alex! "
+            f"Thanks for calling {business_name}, this is {bot_name}! "
             f"How can I help you today?"
         ),
         "serverUrl": webhook_url,
@@ -176,9 +217,10 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
             "messages": [
                 {
                     "role": "system",
-                    "content": _system_prompt(business_name, services, working_hours, service_area),
+                    "content": _system_prompt(business_name, services, working_hours, service_area, bot_name),
                 }
             ],
+            "tools": [_get_business_info_tool()],
         },
     }
 

@@ -111,10 +111,16 @@ class Message(BaseModel):
     content: str = Field("", max_length=10_000)
 
 
+class FunctionCall(BaseModel):
+    name: str
+    parameters: dict = {}
+
+
 class VapiMessageContent(BaseModel):
-    type: str  # assistant-request | status-update
+    type: str  # assistant-request | function-call | status-update
     call: Optional[Call] = None
     conversation: Optional[List[Message]] = None
+    functionCall: Optional[FunctionCall] = None
     status: Optional[str] = None
     durationSeconds: Optional[float] = None
 
@@ -190,6 +196,8 @@ async def vapi_webhook(request: Request) -> dict:
 
     try:
         msg_type = payload.message.type
+        supabase = get_supabase()
+        loop = asyncio.get_event_loop()
 
         # ------------------------------------------------------------------
         # Call ended — generate summary + send missed-call recovery SMS
@@ -202,8 +210,6 @@ async def vapi_webhook(request: Request) -> dict:
                 else None
             )
             duration_seconds = payload.message.durationSeconds or 0
-
-            supabase = get_supabase()
 
             # --- Generate and persist call summary + transcript ---
             summary_client_id: str = ""
@@ -363,6 +369,52 @@ async def vapi_webhook(request: Request) -> dict:
 
             return {"status": "ok"}
 
+        # ------------------------------------------------------------------
+        # Function call — Vapi LLM wants to call get_business_info (RAG)
+        # ------------------------------------------------------------------
+        if msg_type == "function-call":
+            fn = payload.message.functionCall
+            if fn and fn.name == "get_business_info":
+                question = fn.parameters.get("question", "")
+                call_id = payload.message.call.id if payload.message.call else "unknown"
+                phone_num = (
+                    payload.message.call.phoneNumber.number
+                    if payload.message.call and payload.message.call.phoneNumber
+                    else None
+                )
+                # Load client config to get client_id for RAG
+                client_cfg = await loop.run_in_executor(
+                    None, lambda: _db_client_config(supabase, phone_num)
+                ) or {}
+                cid = client_cfg.get("id", "")
+                result = "I don't have that information right now."
+                if question and cid:
+                    try:
+                        from backend.services.rag_service import query_knowledge
+                        context = await query_knowledge(cid, question, top_k=3)
+                        if context:
+                            result = context
+                        else:
+                            # Fallback: assemble from config
+                            services = ", ".join(client_cfg.get("services_offered") or [])
+                            area = client_cfg.get("service_area_description") or ""
+                            hours = client_cfg.get("working_hours") or {}
+                            hours_str = ", ".join(
+                                f"{d} {h}" for d, h in hours.items()
+                            ) if hours else ""
+                            parts = []
+                            if services:
+                                parts.append(f"Services: {services}.")
+                            if area:
+                                parts.append(f"Service area: {area}.")
+                            if hours_str:
+                                parts.append(f"Hours: {hours_str}.")
+                            result = " ".join(parts) or result
+                    except Exception as exc:
+                        logger.warning("RAG query failed in function-call", error=str(exc))
+                return {"result": result}
+            return {"result": "Function not recognized."}
+
         if msg_type != "assistant-request":
             return {"status": "ignored"}
 
@@ -372,9 +424,6 @@ async def vapi_webhook(request: Request) -> dict:
             if payload.message.call and payload.message.call.phoneNumber
             else None
         )
-
-        supabase = get_supabase()
-        loop = asyncio.get_event_loop()
 
         # 1 & 2. Fetch client config AND conversation state in parallel.
         # supabase-py is a synchronous client — wrapping each call in
