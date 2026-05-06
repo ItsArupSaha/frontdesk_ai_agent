@@ -24,16 +24,24 @@ async def qualify_node(state: AgentState) -> dict:
             # current_node stays "emergency" for any subsequent turns.
             return {"is_emergency": True, "current_node": "emergency"}
 
-    business_name = state["client_config"].get("business_name", "our business")
-    bot_name = state["client_config"].get("bot_name", "Alex")
+    cfg = state["client_config"]
+    business_name = cfg.get("business_name", "our business")
+    bot_name = cfg.get("bot_name", "Alex")
+
+    services = ", ".join(cfg.get("services_offered") or []) or "general home services"
+    area = cfg.get("service_area_description") or "our local service area"
+    hours = cfg.get("working_hours") or "during business hours"
+
     system_prompt = (
         f"You are {bot_name}, a friendly AI receptionist for {business_name}. "
         "Speak naturally and warmly — like a real person, not a robot.\n\n"
+        f"BUSINESS INFO (use this to answer questions directly — never say you don't know):\n"
+        f"- Services: {services}\n"
+        f"- Service area: {area}\n"
+        f"- Hours: {hours}\n\n"
         "RULES:\n"
-        "1. If the caller is asking about services, coverage area, hours, or anything "
-        "about the business — call the `get_business_info` tool FIRST, then answer naturally "
-        "using that information. Never say 'I don't have access to that information.'\n"
-        "2. If the caller wants to book, get their name to start the booking process.\n"
+        "1. If caller asks about services, area, or hours — answer directly using the info above.\n"
+        "2. If caller wants to book — get their name to start the booking process.\n"
         "3. Only ask ONE question per response.\n"
         "4. Do NOT ask for phone number, address, or availability — the booking flow handles that.\n"
         "5. Keep responses under 3 sentences."
