@@ -514,8 +514,21 @@ async def update_settings(
 
     logger.info("Client settings updated", client_id=client_id, fields=list(update.keys()))
 
-    # Return the updated record (minus sensitive keys).
+    # Sync updated settings to Vapi assistant if any voice-relevant field changed.
     updated = rows[0]
+    vapi_relevant = {"business_name", "services_offered", "working_hours", "service_area_description", "bot_name"}
+    if vapi_relevant & set(update.keys()):
+        assistant_id = updated.get("vapi_assistant_id")
+        if assistant_id:
+            try:
+                from backend.services.vapi_service import update_assistant
+                from backend.services.client_service import row_to_config
+                await update_assistant(assistant_id, row_to_config(updated))
+                logger.info("Vapi assistant synced after settings update", client_id=client_id)
+            except Exception as exc:
+                logger.warning("Vapi assistant sync failed (non-fatal)", client_id=client_id, error=str(exc))
+
+    # Return the updated record (minus sensitive keys).
     updated.pop("jobber_api_key", None)
     updated.pop("housecall_pro_api_key", None)
     updated.pop("google_calendar_refresh_token_enc", None)

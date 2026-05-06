@@ -33,32 +33,32 @@ def _headers() -> dict[str, str]:
     }
 
 
-def _system_prompt(business_name: str, services: list[str], working_hours: dict) -> str:
-    """Build the system prompt for a new Vapi assistant.
-
-    Args:
-        business_name: Client's business name.
-        services: List of services the business offers.
-        working_hours: Dict of day → hours string.
-
-    Returns:
-        Formatted system prompt string.
-    """
+def _system_prompt(
+    business_name: str,
+    services: list[str],
+    working_hours: dict,
+    service_area: str = "",
+) -> str:
+    """Build the system prompt for a new Vapi assistant."""
     services_str = ", ".join(services) if services else "home services"
     hours_lines = "\n".join(
         f"  {day}: {hrs}" for day, hrs in working_hours.items()
     ) if working_hours else "  Mon-Fri: 8am-6pm"
+    area_line = f"\nService area: {service_area}" if service_area else ""
 
     return (
-        f"You are Alex, the AI assistant for {business_name}. "
-        f"You answer inbound calls 24/7 for a {services_str} business.\n\n"
+        f"You are Alex, the AI receptionist for {business_name}. "
+        f"You answer inbound calls 24/7 for a {services_str} business."
+        f"{area_line}\n\n"
         f"Your job:\n"
         f"1. Greet callers warmly and find out how you can help.\n"
-        f"2. Detect emergencies (burst pipes, gas leaks, sparking wires, no heat) "
+        f"2. If asked about service area, hours, or services — answer directly from the info above. "
+        f"Never say you don't have that information.\n"
+        f"3. Detect emergencies (burst pipes, gas leaks, sparking wires, no heat) "
         f"and escalate immediately.\n"
-        f"3. Qualify the lead — get name, address, problem description.\n"
-        f"4. Book appointments during working hours:\n{hours_lines}\n"
-        f"5. Send SMS confirmation once booked.\n\n"
+        f"4. Qualify the lead — get name, address, problem description.\n"
+        f"5. Book appointments during working hours:\n{hours_lines}\n"
+        f"6. Send SMS confirmation once booked.\n\n"
         f"Always be professional, empathetic, and efficient. "
         f"If you can't help, offer to connect them with a human."
     )
@@ -85,6 +85,7 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
     business_name: str = client_config.get("business_name", "Our Business")
     services: list[str] = client_config.get("services_offered", [])
     working_hours: dict = client_config.get("working_hours", {})
+    service_area: str = client_config.get("service_area_description", "")
 
     webhook_url = f"{settings.vapi_webhook_base_url}/webhook/vapi"
 
@@ -96,7 +97,7 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
             "messages": [
                 {
                     "role": "system",
-                    "content": _system_prompt(business_name, services, working_hours),
+                    "content": _system_prompt(business_name, services, working_hours, service_area),
                 }
             ],
         },
@@ -159,6 +160,7 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
     business_name: str = client_config.get("business_name", "Our Business")
     services: list[str] = client_config.get("services_offered", [])
     working_hours: dict = client_config.get("working_hours", {})
+    service_area: str = client_config.get("service_area_description", "")
     webhook_url = f"{settings.vapi_webhook_base_url}/webhook/vapi"
 
     patch_payload: dict = {
@@ -174,7 +176,7 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
             "messages": [
                 {
                     "role": "system",
-                    "content": _system_prompt(business_name, services, working_hours),
+                    "content": _system_prompt(business_name, services, working_hours, service_area),
                 }
             ],
         },
