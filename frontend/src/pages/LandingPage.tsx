@@ -127,8 +127,8 @@ export function LandingPage() {
           <div className="relative z-10 mx-auto max-w-[1240px]">
             <SectionHeading
               eyebrow="Pricing"
-              title="Structured engagements for focused rollout or full AI operations."
-              description="Choose a scope that matches the number of workflows, systems, and teams involved. Every plan is built for production delivery."
+              title="Simple, transparent pricing. No surprises."
+              description="One-time setup fee covers everything. Your AI receptionist is live in 90 minutes and runs 24/7 from day one."
             />
 
             <motion.div
@@ -161,7 +161,7 @@ export function LandingPage() {
             </motion.div>
 
             <motion.div
-              className="grid gap-6 lg:grid-cols-3"
+              className="mx-auto grid max-w-3xl gap-6 lg:grid-cols-2"
               variants={staggerContainer}
               initial="hidden"
               whileInView="visible"

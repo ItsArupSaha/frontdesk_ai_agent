@@ -43,7 +43,9 @@ export type Plan = {
   yearlyPrice: string;
   description: string;
   features: string[];
+  setupFee: string;
   featured?: boolean;
+  ctaLabel: string;
 };
 
 export type Testimonial = {
@@ -204,39 +206,37 @@ export const benefits: Benefit[] = [
 export const plans: Plan[] = [
   {
     name: "Starter",
-    price: "$2.9k",
-    yearlyPrice: "$2.4k",
-    description: "For teams launching one focused automation workflow.",
+    price: "$99",
+    yearlyPrice: "$89",
+    description: "Perfect for small trades businesses ready to stop missing calls and start booking more jobs.",
+    setupFee: "$100 one-time setup",
+    ctaLabel: "Get Started",
     features: [
-      "Workflow audit and automation roadmap",
-      "One core AI workflow deployment",
-      "CRM or inbox integration",
-      "Weekly performance review",
+      "24/7 AI call answering",
+      "Lead qualification & job intake",
+      "Emergency detection & live transfer",
+      "Google Calendar sync & booking",
+      "Missed-call voicemail handling",
+      "Call logs & bookings dashboard",
+      "Email support",
     ],
   },
   {
-    name: "Professional",
-    price: "$6.5k",
-    yearlyPrice: "$5.4k",
-    description: "For growth teams building AI operations across revenue and support.",
-    features: [
-      "Multi-workflow AI system design",
-      "Lead routing, scoring, and reporting",
-      "Cross-tool integrations and QA",
-      "Ongoing optimization and iteration",
-    ],
+    name: "Pro",
+    price: "$149",
+    yearlyPrice: "$129",
+    description: "For businesses that want full automation — confirmations, reminders, and follow-up on autopilot.",
+    setupFee: "$100 one-time setup",
+    ctaLabel: "Get Started",
     featured: true,
-  },
-  {
-    name: "Enterprise",
-    price: "Custom",
-    yearlyPrice: "Custom",
-    description: "For complex organizations requiring custom orchestration and governance.",
     features: [
-      "Custom architecture and deployment plan",
-      "Advanced security and approval flows",
-      "Dedicated implementation support",
-      "Executive reporting and SLA options",
+      "Everything in Starter",
+      "SMS booking confirmations",
+      "24h appointment reminders",
+      "Missed-call recovery SMS",
+      "Google review request SMS",
+      "Priority email support",
+      "Settings & hours via dashboard",
     ],
   },
 ];
