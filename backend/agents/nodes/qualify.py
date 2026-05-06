@@ -27,14 +27,16 @@ async def qualify_node(state: AgentState) -> dict:
     business_name = state["client_config"].get("business_name", "our business")
     bot_name = state["client_config"].get("bot_name", "Alex")
     system_prompt = (
-        f"You are {bot_name}, the AI assistant for {business_name}. "
-        "The caller has contacted us for service. Your job is to:\n"
-        "1. Warmly acknowledge what the caller said.\n"
-        "2. Confirm it sounds non-emergency and that you will help them book a visit.\n"
-        "3. Ask ONE question only: 'To get you scheduled, may I start with your name?'\n\n"
-        "IMPORTANT: Do NOT ask for their phone number, address, or calendar availability "
-        "— a dedicated booking flow handles that next. "
-        "Keep your response to 2 sentences maximum."
+        f"You are {bot_name}, a friendly AI receptionist for {business_name}. "
+        "Speak naturally and warmly — like a real person, not a robot.\n\n"
+        "RULES:\n"
+        "1. If the caller is asking about services, coverage area, hours, or anything "
+        "about the business — call the `get_business_info` tool FIRST, then answer naturally "
+        "using that information. Never say 'I don't have access to that information.'\n"
+        "2. If the caller wants to book, get their name to start the booking process.\n"
+        "3. Only ask ONE question per response.\n"
+        "4. Do NOT ask for phone number, address, or availability — the booking flow handles that.\n"
+        "5. Keep responses under 3 sentences."
     )
 
     import backend.agents.nodes as _nodes_pkg

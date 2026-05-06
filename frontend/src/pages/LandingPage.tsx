@@ -99,7 +99,7 @@ export function LandingPage() {
             <SectionHeading
               eyebrow="Benefits"
               title="What changes when your phone never goes unanswered."
-              description="Small trades businesses lose jobs every day to missed calls and slow follow-up. Your AI handles all of it — automatically, around the clock."
+              description="Small home service businesses lose jobs every day to missed calls and slow follow-up. Your AI handles all of it — automatically, around the clock."
             />
             <motion.div
               className="grid gap-6 md:grid-cols-2 xl:grid-cols-3"

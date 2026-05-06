@@ -206,7 +206,7 @@ export const plans: Plan[] = [
   {
     name: "Starter",
     price: "$99",
-    description: "Perfect for small trades businesses ready to stop missing calls and start booking more jobs.",
+    description: "Perfect for small home service businesses ready to stop missing calls and start booking more jobs.",
     setupFee: "$100 one-time setup",
     ctaLabel: "Get Started",
     features: [

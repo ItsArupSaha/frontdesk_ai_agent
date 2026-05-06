@@ -10,7 +10,7 @@ const plans = [
     name: "Starter",
     price: "$99",
     setupFee: "$100 one-time setup",
-    description: "Perfect for small trades businesses ready to stop missing calls and start booking more jobs.",
+    description: "Perfect for small home service businesses ready to stop missing calls and start booking more jobs.",
     checkoutUrl: CHECKOUT_STARTER,
     featured: false,
     features: [
