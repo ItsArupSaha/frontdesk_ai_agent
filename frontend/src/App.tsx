@@ -26,6 +26,8 @@ const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
 const PaymentPage = lazy(() => import("./pages/PaymentPage"));
 const SetPasswordPage = lazy(() => import("./pages/SetPassword"));
 const SetupGuidePage = lazy(() => import("./pages/SetupGuide"));
+const TermsPage = lazy(() => import("./pages/TermsPage"));
+const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 
 function RootEntry() {
   const { user, role, loading } = useAuth();
@@ -122,6 +124,8 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Suspense>

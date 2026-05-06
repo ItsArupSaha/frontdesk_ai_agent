@@ -98,17 +98,25 @@ export function Navbar() {
             </div>
           </div>
         ) : (
-          <button
-            onClick={() => navigate("/login")}
-            className="inline-flex items-center gap-1.5 rounded-[8px] px-3.5 py-1.5 text-xs font-medium text-white transition-opacity duration-150 hover:opacity-90"
-            style={{
-              background: "linear-gradient(135deg,#7C3AED 0%,#8B5CF6 100%)",
-              boxShadow: "0 0 16px rgba(124,58,237,0.30)",
-            }}
-          >
-            Login
-            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/login")}
+              className="inline-flex items-center gap-1.5 rounded-[8px] border border-white/10 bg-white/[0.05] px-3.5 py-1.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-white/[0.08]"
+            >
+              Login
+            </button>
+            <button
+              onClick={() => navigate("/payment")}
+              className="inline-flex items-center gap-1.5 rounded-[8px] px-3.5 py-1.5 text-xs font-medium text-white transition-opacity duration-150 hover:opacity-90"
+              style={{
+                background: "linear-gradient(135deg,#7C3AED 0%,#8B5CF6 100%)",
+                boxShadow: "0 0 16px rgba(124,58,237,0.30)",
+              }}
+            >
+              Get Started
+              <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
         )}
       </div>
     </motion.header>

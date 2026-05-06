@@ -7,7 +7,6 @@ import { SectionHeading } from "../components/SectionHeading";
 import { BenefitCard } from "../components/BenefitCard";
 import { PricingCard } from "../components/PricingCard";
 import { FAQItem } from "../components/FAQItem";
-import { CTASection } from "../components/CTASection";
 import { Footer } from "../components/Footer";
 import { SectionSkeleton } from "../components/SectionSkeleton";
 import {
@@ -164,7 +163,6 @@ export function LandingPage() {
           </div>
         </section>
 
-        <CTASection />
         <Footer />
       </main>
     </div>
