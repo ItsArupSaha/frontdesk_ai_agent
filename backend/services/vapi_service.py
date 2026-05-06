@@ -68,10 +68,29 @@ def _system_prompt(
         f"5. Qualify the lead — get name, address, problem description.\n"
         f"6. Book appointments during working hours:\n{hours_lines}\n"
         f"7. Send SMS confirmation once booked.\n\n"
+        f"If a caller asks to speak to a human, real person, or manager — use the transfer_to_human function immediately. "
+        f"Say 'Of course, let me connect you right now.' before transferring.\n\n"
         f"Always be professional, empathetic, and efficient. "
-        f"Speak naturally — like a real person, not a robot. "
-        f"If you can't help, offer to connect them with a human."
+        f"Speak naturally — like a real person, not a robot."
     )
+
+
+def _transfer_to_human_tool(main_phone: str) -> dict:
+    """Return a Vapi native transferCall tool that routes to the main business number."""
+    return {
+        "type": "transferCall",
+        "function": {
+            "name": "transfer_to_human",
+            "description": "Transfer the caller to a human staff member when they request it.",
+        },
+        "destinations": [
+            {
+                "type": "number",
+                "number": main_phone,
+                "message": "Of course, let me connect you right now. Please hold.",
+            }
+        ],
+    }
 
 
 def _get_business_info_tool() -> dict:
@@ -125,8 +144,13 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
     services: list[str] = client_config.get("services_offered", [])
     working_hours: dict = client_config.get("working_hours", {})
     service_area: str = client_config.get("service_area_description", "")
+    main_phone: str = client_config.get("main_phone_number") or ""
 
     webhook_url = f"{settings.vapi_webhook_base_url}/webhook/vapi"
+
+    tools = [_get_business_info_tool()]
+    if main_phone:
+        tools.append(_transfer_to_human_tool(main_phone))
 
     payload = {
         "name": f"{business_name} Agent",
@@ -139,7 +163,7 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
                     "content": _system_prompt(business_name, services, working_hours, service_area, bot_name),
                 }
             ],
-            "tools": [_get_business_info_tool()],
+            "tools": tools,
         },
         "voice": {
             "provider": "11labs",
@@ -202,7 +226,12 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
     services: list[str] = client_config.get("services_offered", [])
     working_hours: dict = client_config.get("working_hours", {})
     service_area: str = client_config.get("service_area_description", "")
+    main_phone: str = client_config.get("main_phone_number") or ""
     webhook_url = f"{settings.vapi_webhook_base_url}/webhook/vapi"
+
+    tools = [_get_business_info_tool()]
+    if main_phone:
+        tools.append(_transfer_to_human_tool(main_phone))
 
     patch_payload: dict = {
         "name": f"{business_name} Agent",
@@ -220,7 +249,7 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
                     "content": _system_prompt(business_name, services, working_hours, service_area, bot_name),
                 }
             ],
-            "tools": [_get_business_info_tool()],
+            "tools": tools,
         },
     }
 
