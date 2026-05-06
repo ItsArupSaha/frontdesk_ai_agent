@@ -1,11 +1,15 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Clock3,
-  Gauge,
-  Layers3,
-  MessageSquareText,
-  Network,
-  ShieldCheck,
+  BarChart3,
+  Bell,
+  Bot,
+  CalendarCheck,
+  ClipboardList,
+  LayoutDashboard,
+  PhoneCall,
+  PhoneForwarded,
+  ShieldAlert,
+  TrendingUp,
 } from "lucide-react";
 
 export type Feature = {
@@ -23,12 +27,14 @@ export type ProcessStep = {
   title: string;
   description: string;
   tone: string;
+  icon: LucideIcon;
 };
 
 export type Benefit = {
   title: string;
   description: string;
   icon: LucideIcon;
+  stat: string;
 };
 
 export type Plan = {
@@ -113,69 +119,85 @@ export const features: Feature[] = [
 
 export const processSteps: ProcessStep[] = [
   {
-    id: "analysis",
+    id: "setup",
     label: "01",
-    title: "Smart AI Analysis",
+    title: "Share your business details",
     description:
-      "We audit your workflows, data quality, and delivery friction to identify high-leverage automation opportunities with measurable ROI.",
-    tone: "Signal Map",
+      "Fill in your services, working hours, emergency contact, and service area. The intake form takes under 10 minutes. No tech setup needed from your side.",
+    tone: "Onboarding",
+    icon: ClipboardList,
   },
   {
-    id: "deployment",
+    id: "configure",
     label: "02",
-    title: "AI Deployment",
+    title: "We build your AI agent",
     description:
-      "We implement production-ready agent flows, prompts, and automation logic with safeguards, observability, and business-specific context.",
-    tone: "Flow Control",
+      "We provision your dedicated AI assistant, assign a local phone number, and sync it to your Google Calendar — all within 90 minutes of sign-up.",
+    tone: "Provisioning",
+    icon: Bot,
   },
   {
-    id: "integration",
+    id: "golive",
     label: "03",
-    title: "Seamless Integration",
+    title: "Forward calls and go live",
     description:
-      "We connect your CRM, inboxes, support tools, and reporting layers so each workflow runs inside the systems your team already uses.",
-    tone: "Connected Stack",
+      "Forward your existing business number to your AI line. From that moment, every call is answered, qualified, and booked automatically — 24/7.",
+    tone: "Activation",
+    icon: PhoneForwarded,
   },
   {
-    id: "optimization",
+    id: "monitor",
     label: "04",
-    title: "Continuous Optimization",
+    title: "Track everything on your dashboard",
     description:
-      "We monitor performance, refine prompts, routing logic, integrations, and reporting after launch so the system continues improving as your requirements change.",
-    tone: "Iterative Gains",
+      "See every call, booking, and emergency in real time. Update your hours, adjust settings, or pause the agent anytime — no tech skills required.",
+    tone: "Dashboard",
+    icon: LayoutDashboard,
   },
 ];
 
 export const benefits: Benefit[] = [
   {
-    icon: Gauge,
-    title: "Increased productivity",
-    description: "Teams spend more time on revenue and less time on repetitive coordination.",
+    icon: PhoneCall,
+    title: "Never miss a call again",
+    description:
+      "Your AI answers every inbound call in under 2 seconds — at 2am, on weekends, while you're on a job. No voicemail, no missed revenue.",
+    stat: "< 2s answer time",
   },
   {
-    icon: MessageSquareText,
-    title: "Better customer experience",
-    description: "Faster, more accurate responses across sales and support touchpoints.",
+    icon: TrendingUp,
+    title: "Stop losing jobs to competitors",
+    description:
+      "When nobody picks up, customers call the next number. Your AI books them before they hang up — every single time.",
+    stat: "62% of missed calls go elsewhere",
   },
   {
-    icon: Layers3,
-    title: "Lower operational overhead",
-    description: "Manual admin shrinks as systems route, enrich, and update automatically.",
+    icon: ShieldAlert,
+    title: "Emergencies escalated instantly",
+    description:
+      "Burst pipes, gas leaks, no heat — detected from natural conversation and transferred to you live. No delay, no risk.",
+    stat: "Zero-delay emergency transfer",
   },
   {
-    icon: Network,
-    title: "Scalable systems",
-    description: "Workflows stay structured even as channels, volume, and team size expand.",
+    icon: CalendarCheck,
+    title: "Bookings while you're on the job",
+    description:
+      "Appointments are scheduled against your live calendar automatically. No double-bookings. No back-and-forth calls.",
+    stat: "Live calendar sync",
   },
   {
-    icon: Clock3,
-    title: "Faster response times",
-    description: "AI agents triage and trigger actions immediately instead of waiting on queues.",
+    icon: Bell,
+    title: "Automatic follow-up, zero effort",
+    description:
+      "SMS confirmations, 24h reminders, and missed-call recovery all fire automatically. No manual admin required.",
+    stat: "Reminders sent 24h before",
   },
   {
-    icon: ShieldCheck,
-    title: "Better data consistency",
-    description: "Clean sync logic and defined steps reduce duplication and reporting drift.",
+    icon: BarChart3,
+    title: "Your whole business in one view",
+    description:
+      "Every call, booking, and emergency logged and visible on your dashboard. Know exactly what's happening, anytime.",
+    stat: "Real-time dashboard",
   },
 ];
 

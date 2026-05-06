@@ -11,7 +11,6 @@ import { FAQItem } from "../components/FAQItem";
 import { CTASection } from "../components/CTASection";
 import { Footer } from "../components/Footer";
 import { SectionSkeleton } from "../components/SectionSkeleton";
-import { ShowcaseSection } from "../components/landing/ShowcaseSection";
 import {
   benefits,
   faqs,
@@ -78,9 +77,9 @@ export function LandingPage() {
           <SectionParticleLayer />
           <div className="relative z-10 mx-auto max-w-[1240px]">
             <SectionHeading
-              eyebrow="Process"
-              title="Our simple, smart, and scalable process"
-              description="We keep implementation tight: clear analysis, disciplined deployment, seamless integration, and continuous optimization after launch."
+              eyebrow="How It Works"
+              title="Live in under 90 minutes. No tech skills needed."
+              description="We handle the entire setup. You handle the jobs. Your AI receptionist answers calls, qualifies leads, and books appointments from day one."
             />
             <motion.div
               className="grid gap-6 md:grid-cols-2"
@@ -98,15 +97,13 @@ export function LandingPage() {
           </div>
         </section>
 
-        <ShowcaseSection />
-
         <section className="relative isolate overflow-hidden px-4 py-[clamp(5rem,8vw,8rem)] sm:px-6 lg:px-8">
           <SectionParticleLayer />
           <div className="relative z-10 mx-auto max-w-[1240px]">
             <SectionHeading
               eyebrow="Benefits"
-              title="Operational outcomes that compound as the system matures."
-              description="The objective is not novelty. It is cleaner execution, faster decisions, and measurable throughput gains across your stack."
+              title="What changes when your phone never goes unanswered."
+              description="Small trades businesses lose jobs every day to missed calls and slow follow-up. Your AI handles all of it — automatically, around the clock."
             />
             <motion.div
               className="grid gap-6 md:grid-cols-2 xl:grid-cols-3"
