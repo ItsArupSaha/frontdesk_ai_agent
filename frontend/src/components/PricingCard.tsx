@@ -5,12 +5,11 @@ import { buttonHover, staggerItem } from "../lib/motion";
 
 type PricingCardProps = {
   plan: Plan;
-  yearly: boolean;
 };
 
-export function PricingCard({ plan, yearly }: PricingCardProps) {
+export function PricingCard({ plan }: PricingCardProps) {
   const isFeatured = Boolean(plan.featured);
-  const price = yearly ? plan.yearlyPrice : plan.price;
+  const price = plan.price;
 
   return (
     <motion.div

@@ -41,7 +41,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
             <Sparkles className="h-5 w-5" />
           </div>
           <h1 className="mt-5 text-[1.85rem] font-semibold tracking-[-0.05em] text-white">
-            AI Front-Desk
+            FrondexAI
           </h1>
           <p className="mt-1 text-xs uppercase tracking-[0.3em] text-white/40">Client Portal</p>
         </div>
@@ -104,7 +104,7 @@ export function DashboardSidebar() {
       <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-between border-b border-white/10 bg-[#07050d]/90 px-4 py-3 backdrop-blur-xl lg:hidden">
         <div className="flex items-center gap-2 text-white">
           <Sparkles className="h-4 w-4 text-violet-400" />
-          <span className="text-sm font-semibold tracking-tight">AI Front-Desk</span>
+          <span className="text-sm font-semibold tracking-tight">FrondexAI</span>
         </div>
         <button
           onClick={() => setOpen(true)}

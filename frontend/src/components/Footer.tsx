@@ -5,15 +5,28 @@ import { SectionParticleLayer } from "./SectionParticleLayer";
 const columns = [
   {
     title: "Pages",
-    links: ["Home", "Solutions", "Pricing", "FAQ"],
+    links: [
+      { label: "Home", href: "#home" },
+      { label: "How It Works", href: "#solutions" },
+      { label: "Pricing", href: "#pricing" },
+      { label: "FAQ", href: "#footer" },
+    ],
   },
   {
     title: "Services",
-    links: ["AI Workflows", "CRM Automation", "Support Systems", "Revenue Ops"],
+    links: [
+      { label: "24/7 Call Answering", href: "#solutions" },
+      { label: "Emergency Escalation", href: "#solutions" },
+      { label: "Appointment Booking", href: "#solutions" },
+      { label: "SMS Follow-Up", href: "#pricing" },
+    ],
   },
   {
     title: "Contact",
-    links: ["hello@blackwood.ai", "+880 1700-000000", "Dhaka / Remote"],
+    links: [
+      { label: "growwitharup@gmail.com", href: "mailto:growwitharup@gmail.com" },
+      { label: "Dhaka / Remote", href: "#" },
+    ],
   },
 ];
 
@@ -33,13 +46,13 @@ export function Footer() {
           <div>
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(124,58,237,0.22),rgba(13,13,17,0.95))]">
-                <span className="text-base font-semibold tracking-[-0.06em] text-white">B</span>
+                <span className="text-base font-bold tracking-[-0.06em] text-white">F</span>
               </span>
-              <span className="text-sm font-medium tracking-[0.24em] text-white">BLACKWOOD AI</span>
+              <span className="text-sm font-medium tracking-[0.24em] text-white">FRONDEXAI</span>
             </div>
             <p className="mt-5 max-w-md text-sm leading-7 text-[var(--text-secondary)]">
-              Premium AI automation systems for B2B teams that need sharper workflows, faster
-              response cycles, and cleaner operating leverage.
+              24/7 AI receptionist for plumbing, HVAC, and electrical businesses. Every call answered,
+              every job booked, every emergency escalated — automatically.
             </p>
           </div>
 
@@ -51,12 +64,12 @@ export function Footer() {
                 </h3>
                 <ul className="mt-5 space-y-3">
                   {column.links.map((link) => (
-                    <li key={link}>
+                    <li key={link.label}>
                       <a
-                        href="#home"
+                        href={link.href}
                         className="text-sm text-[var(--text-secondary)] transition-colors duration-200 hover:text-white"
                       >
-                        {link}
+                        {link.label}
                       </a>
                     </li>
                   ))}
@@ -67,7 +80,7 @@ export function Footer() {
         </div>
 
         <div className="flex flex-col gap-4 pt-6 text-sm text-[var(--text-low)] sm:flex-row sm:items-center sm:justify-between">
-          <p>© 2026 Blackwood AI. Built for high-control automation delivery.</p>
+          <p>© 2026 FrondexAI. All rights reserved.</p>
           <div className="flex items-center gap-6">
             <a href="#home" className="transition-colors duration-200 hover:text-white">
               Privacy

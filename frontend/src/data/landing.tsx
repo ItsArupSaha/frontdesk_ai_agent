@@ -40,7 +40,6 @@ export type Benefit = {
 export type Plan = {
   name: string;
   price: string;
-  yearlyPrice: string;
   description: string;
   features: string[];
   setupFee: string;
@@ -207,7 +206,6 @@ export const plans: Plan[] = [
   {
     name: "Starter",
     price: "$99",
-    yearlyPrice: "$89",
     description: "Perfect for small trades businesses ready to stop missing calls and start booking more jobs.",
     setupFee: "$100 one-time setup",
     ctaLabel: "Get Started",
@@ -224,7 +222,6 @@ export const plans: Plan[] = [
   {
     name: "Pro",
     price: "$149",
-    yearlyPrice: "$129",
     description: "For businesses that want full automation — confirmations, reminders, and follow-up on autopilot.",
     setupFee: "$100 one-time setup",
     ctaLabel: "Get Started",
@@ -274,29 +271,54 @@ export const testimonials: Testimonial[] = [
 
 export const faqs = [
   {
-    question: "What types of AI automation do you build?",
+    question: "How quickly can I go live?",
     answer:
-      "We design and implement workflow automation across sales, support, CRM operations, internal routing, reporting, and handoff logic. Most engagements combine agent behavior, business rules, and cross-tool integration.",
+      "Most businesses are live within 90 minutes of signing up. After you submit your business details — services, hours, emergency contact, and service area — we provision your AI assistant, assign a phone number, and sync your Google Calendar. Once done, you simply forward your existing business number to your AI line and calls start being handled immediately.",
   },
   {
-    question: "Do you work with our existing tools or replace them?",
+    question: "Do I need to change my existing phone number?",
     answer:
-      "We usually integrate with the stack you already use. The goal is to make your current systems work better together, not force a migration unless the architecture is already broken.",
+      "No. You keep your current business number. We provide a separate AI phone number, and you set up a call forward from your existing number to it. This takes about 2 minutes through your phone carrier's settings and can be reversed anytime. Your customers always dial the same number they always have.",
   },
   {
-    question: "How long does a typical rollout take?",
+    question: "What happens when there's an emergency call — like a burst pipe or gas leak?",
     answer:
-      "Focused automation builds can go live in a few weeks. Broader system deployments take longer depending on the number of workflows, integrations, approvals, and internal dependencies.",
+      "Emergency detection is built into the AI. It listens for keywords and phrases like 'burst pipe', 'gas leak', 'no heat', 'flooding', or 'sparking wires' and immediately transfers the call live to your emergency phone number — with no delay. The AI does not try to book these. It escalates first, every time.",
   },
   {
-    question: "How do you measure success after launch?",
+    question: "How does the AI book appointments?",
     answer:
-      "We track response times, manual workload reduction, lead flow quality, resolution speed, reporting clarity, and adoption metrics specific to the workflows we deploy.",
+      "The AI connects to your Google Calendar and checks real-time availability before offering slots to the caller. Once the caller picks a time, the AI confirms it, creates a calendar event, and logs the booking to your dashboard. There are no double bookings — the calendar is always live. SMS confirmations (Pro plan) are sent automatically after booking.",
   },
   {
-    question: "Can you support ongoing optimization?",
+    question: "What if the AI can't answer a question about my business?",
     answer:
-      "Yes. We refine prompts, routing logic, integrations, and reporting after launch so the system continues improving as your team, volume, and requirements change.",
+      "During setup we ingest your business details — services, pricing ranges, service area, working hours, and FAQs — into the AI's knowledge base. For questions it cannot confidently answer, it collects the caller's details and offers to have someone call them back. It never guesses or makes up information about your business.",
+  },
+  {
+    question: "Can I pause or turn off the AI agent?",
+    answer:
+      "Yes, instantly. Your dashboard has an on/off toggle for the AI agent. When turned off, calls are transferred directly to your main phone number instead. You can also update your working hours, services, and emergency contact at any time from the Settings page — no tech support needed.",
+  },
+  {
+    question: "What is the setup fee for?",
+    answer:
+      "The one-time $100 setup fee covers provisioning your dedicated AI assistant, purchasing and configuring your AI phone number, syncing your Google Calendar, ingesting your business knowledge base, and testing the full call flow before you go live. After setup, your only cost is the monthly subscription.",
+  },
+  {
+    question: "What is included in the Pro plan that isn't in Starter?",
+    answer:
+      "Pro adds full SMS automation: booking confirmation texts sent immediately after a call, 24-hour appointment reminders to reduce no-shows, missed-call recovery texts sent within 2 minutes to callers who hung up, and Google review request texts after completed jobs. SMS requires US carrier registration (A2P 10DLC) which we handle — it typically takes 1 to 4 weeks after sign-up.",
+  },
+  {
+    question: "Is my business data kept private?",
+    answer:
+      "Yes. Each client's data is fully isolated — your calls, bookings, and settings are never shared with or visible to other businesses on the platform. All API keys and credentials are encrypted at rest. We do not sell or share your data with third parties.",
+  },
+  {
+    question: "What if I want to cancel?",
+    answer:
+      "You can cancel anytime — there are no long-term contracts. Your AI agent will be deactivated, your phone number released, and your data retained for 30 days in case you want to reactivate. After 30 days, all data is permanently deleted on request.",
   },
 ];
 
