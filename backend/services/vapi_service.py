@@ -44,6 +44,7 @@ def _system_prompt(
     working_hours: dict,
     service_area: str = "",
     bot_name: str = "Alex",
+    sms_enabled: bool = False,
 ) -> str:
     """Build the system prompt for a new Vapi assistant."""
     services_str = ", ".join(services) if services else "home services"
@@ -53,6 +54,7 @@ def _system_prompt(
     ) if working_hours else "  Mon to Fri: 8am to 6pm"
     area_line = f"\nService area: {service_area}" if service_area else ""
 
+    sms_line = "7. Send SMS confirmation once booked." if sms_enabled else "7. Confirm the appointment verbally once booked."
     return (
         f"You are {bot_name}, the AI receptionist for {business_name}. "
         f"You answer inbound calls 24/7 for a {services_str} business."
@@ -67,7 +69,7 @@ def _system_prompt(
         f"and escalate immediately.\n"
         f"5. Qualify the lead — get name, address, problem description.\n"
         f"6. Book appointments during working hours:\n{hours_lines}\n"
-        f"7. Send SMS confirmation once booked.\n\n"
+        f"{sms_line}\n\n"
         f"If a caller asks to speak to a human, real person, or manager — use the transfer_to_human function immediately. "
         f"Say 'Of course, let me connect you right now.' before transferring.\n\n"
         f"Always be professional, empathetic, and efficient. "
@@ -145,6 +147,7 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
     working_hours: dict = client_config.get("working_hours", {})
     service_area: str = client_config.get("service_area_description", "")
     main_phone: str = client_config.get("main_phone_number") or ""
+    sms_enabled: bool = bool(client_config.get("sms_enabled", False))
 
     webhook_url = f"{settings.vapi_webhook_base_url}/webhook/vapi"
 
@@ -160,7 +163,7 @@ async def create_assistant(client_config: dict, client_id: str) -> str:
             "messages": [
                 {
                     "role": "system",
-                    "content": _system_prompt(business_name, services, working_hours, service_area, bot_name),
+                    "content": _system_prompt(business_name, services, working_hours, service_area, bot_name, sms_enabled),
                 }
             ],
             "tools": tools,
@@ -227,6 +230,7 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
     working_hours: dict = client_config.get("working_hours", {})
     service_area: str = client_config.get("service_area_description", "")
     main_phone: str = client_config.get("main_phone_number") or ""
+    sms_enabled: bool = bool(client_config.get("sms_enabled", False))
     webhook_url = f"{settings.vapi_webhook_base_url}/webhook/vapi"
 
     tools = [_get_business_info_tool()]
@@ -246,7 +250,7 @@ async def update_assistant(assistant_id: str, client_config: dict) -> None:
             "messages": [
                 {
                     "role": "system",
-                    "content": _system_prompt(business_name, services, working_hours, service_area, bot_name),
+                    "content": _system_prompt(business_name, services, working_hours, service_area, bot_name, sms_enabled),
                 }
             ],
             "tools": tools,
